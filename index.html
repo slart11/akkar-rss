@@ -3849,8 +3849,14 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             };
 
             // ---- Akkar NB-TTS VoxCPM2 opplesing ----
+            const isLocalHttpOrigin =
+                window.location.protocol === 'http:' &&
+                (window.location.hostname === 'localhost' ||
+                    window.location.hostname === '127.0.0.1' ||
+                    window.location.hostname.startsWith('192.168.'));
+
             const DEFAULT_TTS_SETTINGS = {
-                serverUrl: 'https://tts.autobot.no',
+                serverUrl: isLocalHttpOrigin ? 'http://192.168.10.199:7860' : 'https://tts.autobot.no',
                 username: 'peter',
                 password: '',
                 voice: 'kvinne',
