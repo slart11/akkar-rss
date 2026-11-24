@@ -1554,6 +1554,7 @@
             const tokenIndex = new Map();
             const urlIndex = new Map();
             const exactTitleIndex = new Map();
+            const exactSummaryIndex = new Map();
             const MAX_TIME_DISTANCE = 72 * 60 * 60 * 1000;
             const MATCH_THRESHOLD = 0.62;
             const SAME_FEED_MATCH_THRESHOLD = 0.82;
@@ -1562,6 +1563,11 @@
                 const articleTime = new Date(article.pubDate).getTime() || 0;
                 const normUrl = normalizeArticleDedupeUrl(article.url);
                 const exactTitleKey = (article.title || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+                const cleanSum = cleanRssSummary(article.summary || article.content || '')
+                    .toLowerCase()
+                    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+                    .trim();
+                const exactSummaryKey = cleanSum.length >= 60 ? cleanSum.slice(0, 90) : '';
 
                 // 1. Eksakt samme normaliserte URL -> slå alltid sammen
                 if (normUrl && urlIndex.has(normUrl)) {
@@ -1573,6 +1579,17 @@
                 // 2. Eksakt samme tittel innenfor tidsvinduet -> slå sammen (også i samme feed)
                 if (exactTitleKey.length >= 12 && exactTitleIndex.has(exactTitleKey)) {
                     const gIdx = exactTitleIndex.get(exactTitleKey);
+                    const g = groups[gIdx];
+                    if (!articleTime || !g.primaryTime || Math.abs(articleTime - g.primaryTime) <= MAX_TIME_DISTANCE) {
+                        g.articles.push(article);
+                        if (normUrl && !urlIndex.has(normUrl)) urlIndex.set(normUrl, gIdx);
+                        return;
+                    }
+                }
+
+                // 3. Eksakt samme ingress (f.eks. Polaris/MN24 + Adressa med ulik tittel) -> slå sammen
+                if (exactSummaryKey && exactSummaryIndex.has(exactSummaryKey)) {
+                    const gIdx = exactSummaryIndex.get(exactSummaryKey);
                     const g = groups[gIdx];
                     if (!articleTime || !g.primaryTime || Math.abs(articleTime - g.primaryTime) <= MAX_TIME_DISTANCE) {
                         g.articles.push(article);
@@ -1594,6 +1611,7 @@
 
                     if (normUrl && !urlIndex.has(normUrl)) urlIndex.set(normUrl, groupIndex);
                     if (exactTitleKey.length >= 12 && !exactTitleIndex.has(exactTitleKey)) exactTitleIndex.set(exactTitleKey, groupIndex);
+                    if (exactSummaryKey && !exactSummaryIndex.has(exactSummaryKey)) exactSummaryIndex.set(exactSummaryKey, groupIndex);
 
                     articleTokens.forEach(token => {
                         if (!tokenIndex.has(token)) tokenIndex.set(token, new Set());
@@ -5238,7 +5256,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                             {/* Artikler */}
                             <div
                                 ref={mainScrollRef}
-                                className="h-full overflow-y-scroll px-2 pb-2 pt-16 sm:p-4 sm:pl-20 lg:pl-4 lg:pt-4 overscroll-y-contain"
+                                className="h-full overflow-y-scroll px-2 pb-2 pt-4 sm:p-4 lg:pl-4 lg:pt-4 overscroll-y-contain"
                                 style={{ scrollbarGutter: 'stable' }}
                                 onScroll={handleMainScroll}
                                 onTouchStart={handlePullStart}
@@ -5269,7 +5287,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 )}
 
                                 <div className="relative max-w-4xl w-full mx-auto mb-2">
-                                    <div className="w-full flex items-center justify-end gap-2">
+                                    <div className="w-full flex items-center justify-end gap-2 pl-14 lg:pl-0 min-h-[44px]">
                                         <div className="shrink-0">
                                         <button
                                             ref={sizeMenuButtonRef}
