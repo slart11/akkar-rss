@@ -3970,6 +3970,23 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         : article
                 ));
 
+                const allFeedsInOrder = folders.flatMap(folder =>
+                    (folder.feeds || []).map(feed => ({
+                        type: 'feed',
+                        id: feed.id,
+                        name: feed.title
+                    }))
+                );
+
+                if (activeFilter.type === 'feed' && allFeedsInOrder.length > 0) {
+                    const currentFeedIdx = allFeedsInOrder.findIndex(f => f.id === activeFilter.id);
+                    const nextFeed = allFeedsInOrder[(currentFeedIdx + 1 + allFeedsInOrder.length) % allFeedsInOrder.length];
+                    if (nextFeed) {
+                        setActiveFilter(nextFeed);
+                    }
+                    return;
+                }
+
                 const streamUnits = folders.flatMap(folder => {
                     if (!(folder.feeds || []).length) return [];
 
@@ -3993,25 +4010,9 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     return;
                 }
 
-                let currentFolderIndex = -1;
-
-                if (activeFilter.type === 'folder') {
-                    currentFolderIndex = streamUnits.findIndex(unit => unit.id === activeFilter.id);
-                } else if (activeFilter.type === 'feed') {
-                    const parentFolder = folders.find(folder =>
-                        (folder.feeds || []).some(feed => feed.id === activeFilter.id)
-                    );
-
-                    if (parentFolder?.id === UNGROUPED_FOLDER_ID) {
-                        currentFolderIndex = streamUnits.findIndex(
-                            unit => unit.type === 'feed' && unit.id === activeFilter.id
-                        );
-                    } else if (parentFolder) {
-                        currentFolderIndex = streamUnits.findIndex(
-                            unit => unit.type === 'folder' && unit.id === parentFolder.id
-                        );
-                    }
-                }
+                const currentFolderIndex = activeFilter.type === 'folder'
+                    ? streamUnits.findIndex(unit => unit.id === activeFilter.id)
+                    : -1;
 
                 const nextStream = streamUnits[(currentFolderIndex + 1 + streamUnits.length) % streamUnits.length];
 
