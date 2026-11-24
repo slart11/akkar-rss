@@ -4351,6 +4351,73 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 return () => window.removeEventListener('popstate', handleMobileBack);
             }, []);
 
+            const pinchZoomRef = useRef(null);
+            const activeTextScaleRef = useRef(activeStreamSettings.textScale);
+            activeTextScaleRef.current = activeStreamSettings.textScale;
+            const updateStreamSettingsRef = useRef(updateActiveStreamSettings);
+            updateStreamSettingsRef.current = updateActiveStreamSettings;
+
+            useEffect(() => {
+                const el = mainScrollRef.current;
+                if (!el) return;
+
+                const getDist = (touches) => {
+                    const dx = touches[0].clientX - touches[1].clientX;
+                    const dy = touches[0].clientY - touches[1].clientY;
+                    return Math.hypot(dx, dy);
+                };
+
+                const onTouchStart = (e) => {
+                    if (e.touches.length === 2) {
+                        pinchZoomRef.current = {
+                            startDist: getDist(e.touches),
+                            startScale: activeTextScaleRef.current || 100,
+                            lastApplied: activeTextScaleRef.current || 100,
+                        };
+                    }
+                };
+
+                const onTouchMove = (e) => {
+                    if (e.touches.length !== 2) return;
+                    if (!pinchZoomRef.current) {
+                        pinchZoomRef.current = {
+                            startDist: getDist(e.touches),
+                            startScale: activeTextScaleRef.current || 100,
+                            lastApplied: activeTextScaleRef.current || 100,
+                        };
+                    }
+                    e.preventDefault();
+                    const dist = getDist(e.touches);
+                    const { startDist, startScale, lastApplied } = pinchZoomRef.current;
+                    if (!startDist) return;
+                    const raw = startScale * (dist / startDist);
+                    const clamped = Math.max(75, Math.min(150, Math.round(raw / 5) * 5));
+                    if (clamped !== lastApplied) {
+                        pinchZoomRef.current.lastApplied = clamped;
+                        updateStreamSettingsRef.current({ textScale: clamped });
+                        showToast(`Tekststørrelse: ${clamped} %`);
+                    }
+                };
+
+                const onTouchEnd = (e) => {
+                    if (e.touches.length < 2) {
+                        pinchZoomRef.current = null;
+                    }
+                };
+
+                el.addEventListener('touchstart', onTouchStart, { passive: true });
+                el.addEventListener('touchmove', onTouchMove, { passive: false });
+                el.addEventListener('touchend', onTouchEnd, { passive: true });
+                el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+                return () => {
+                    el.removeEventListener('touchstart', onTouchStart);
+                    el.removeEventListener('touchmove', onTouchMove);
+                    el.removeEventListener('touchend', onTouchEnd);
+                    el.removeEventListener('touchcancel', onTouchEnd);
+                };
+            }, []);
+
             const updateTtsSettings = (patch) => {
                 setTtsSettings(prev => {
                     const next = { ...prev, ...patch };
@@ -5465,8 +5532,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                 </div>
                                                 <input
                                                     type="range"
-                                                    min="80"
-                                                    max="140"
+                                                    min="75"
+                                                    max="150"
                                                     step="5"
                                                     value={activeStreamSettings.textScale}
                                                     onChange={(e) => updateActiveStreamSettings({
