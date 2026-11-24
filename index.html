@@ -4273,6 +4273,64 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 }
             };
 
+            const mobileBackStateRef = useRef({});
+            mobileBackStateRef.current = {
+                isMenuOpen,
+                showReadLaterOnly,
+                isAddFeedOpen,
+                isShortcutsOpen,
+                ttsSettingsOpen,
+                ttsExpanded: ttsState.expanded,
+            };
+
+            useEffect(() => {
+                if (window.location.hash.startsWith('#saved=')) return;
+                if (window.innerWidth >= 1024) return;
+
+                if (!window.history.state?.akkarMobileGuard) {
+                    window.history.pushState({ akkarMobileGuard: true }, '');
+                }
+
+                const handleMobileBack = () => {
+                    if (window.location.hash.startsWith('#saved=')) return;
+                    if (window.innerWidth >= 1024) return;
+
+                    const st = mobileBackStateRef.current;
+                    if (st.ttsSettingsOpen) {
+                        setTtsSettingsOpen(false);
+                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        return;
+                    }
+                    if (st.isAddFeedOpen) {
+                        setIsAddFeedOpen(false);
+                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        return;
+                    }
+                    if (st.isShortcutsOpen) {
+                        setIsShortcutsOpen(false);
+                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        return;
+                    }
+                    if (st.showReadLaterOnly) {
+                        setShowReadLaterOnly(false);
+                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        return;
+                    }
+                    if (st.ttsExpanded) {
+                        setTtsState(prev => ({ ...prev, expanded: false }));
+                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        return;
+                    }
+                    if (!st.isMenuOpen) {
+                        setIsMenuOpen(true);
+                        window.history.pushState({ akkarMobileGuard: true }, '');
+                    }
+                };
+
+                window.addEventListener('popstate', handleMobileBack);
+                return () => window.removeEventListener('popstate', handleMobileBack);
+            }, []);
+
             const updateTtsSettings = (patch) => {
                 setTtsSettings(prev => {
                     const next = { ...prev, ...patch };
