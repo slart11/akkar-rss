@@ -1538,14 +1538,49 @@
             return Math.max(jaccard, containment * 0.9);
         };
 
+        const normalizeArticleDedupeUrl = (rawUrl) => {
+            if (!rawUrl) return '';
+            try {
+                const u = new URL(rawUrl.trim());
+                ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid'].forEach(p => u.searchParams.delete(p));
+                return (u.hostname.replace(/^www\./, '').toLowerCase() + u.pathname.replace(/\/+$/, '') + u.search).toLowerCase();
+            } catch {
+                return rawUrl.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+            }
+        };
+
         const groupSimilarStories = (items) => {
             const groups = [];
             const tokenIndex = new Map();
+            const urlIndex = new Map();
+            const exactTitleIndex = new Map();
             const MAX_TIME_DISTANCE = 72 * 60 * 60 * 1000;
             const MATCH_THRESHOLD = 0.62;
+            const SAME_FEED_MATCH_THRESHOLD = 0.82;
 
             items.forEach(article => {
                 const articleTime = new Date(article.pubDate).getTime() || 0;
+                const normUrl = normalizeArticleDedupeUrl(article.url);
+                const exactTitleKey = (article.title || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+                // 1. Eksakt samme normaliserte URL -> slå alltid sammen
+                if (normUrl && urlIndex.has(normUrl)) {
+                    const gIdx = urlIndex.get(normUrl);
+                    groups[gIdx].articles.push(article);
+                    return;
+                }
+
+                // 2. Eksakt samme tittel innenfor tidsvinduet -> slå sammen (også i samme feed)
+                if (exactTitleKey.length >= 12 && exactTitleIndex.has(exactTitleKey)) {
+                    const gIdx = exactTitleIndex.get(exactTitleKey);
+                    const g = groups[gIdx];
+                    if (!articleTime || !g.primaryTime || Math.abs(articleTime - g.primaryTime) <= MAX_TIME_DISTANCE) {
+                        g.articles.push(article);
+                        if (normUrl && !urlIndex.has(normUrl)) urlIndex.set(normUrl, gIdx);
+                        return;
+                    }
+                }
+
                 const articleTokens = new Set(normalizeStoryTitle(article.title));
 
                 const addGroup = () => {
@@ -1556,6 +1591,9 @@
                         tokenSet: articleTokens,
                         articles: [article]
                     });
+
+                    if (normUrl && !urlIndex.has(normUrl)) urlIndex.set(normUrl, groupIndex);
+                    if (exactTitleKey.length >= 12 && !exactTitleIndex.has(exactTitleKey)) exactTitleIndex.set(exactTitleKey, groupIndex);
 
                     articleTokens.forEach(token => {
                         if (!tokenIndex.has(token)) tokenIndex.set(token, new Set());
@@ -1593,9 +1631,6 @@
                     const group = groups[groupIndex];
                     if (!group) return;
 
-                    // Kun samme sak fra forskjellige kilder skal slås sammen.
-                    if (group.articles.some(item => item.feedId === article.feedId)) return;
-
                     if (
                         articleTime &&
                         group.primaryTime &&
@@ -1610,14 +1645,18 @@
                         sharedCount
                     );
 
-                    if (score > bestScore) {
+                    const sameFeed = group.articles.some(item => item.feedId === article.feedId);
+                    const requiredThreshold = sameFeed ? SAME_FEED_MATCH_THRESHOLD : MATCH_THRESHOLD;
+
+                    if (score >= requiredThreshold && score > bestScore) {
                         bestScore = score;
                         bestGroupIndex = groupIndex;
                     }
                 });
 
-                if (bestGroupIndex >= 0 && bestScore >= MATCH_THRESHOLD) {
+                if (bestGroupIndex >= 0) {
                     groups[bestGroupIndex].articles.push(article);
+                    if (normUrl && !urlIndex.has(normUrl)) urlIndex.set(normUrl, bestGroupIndex);
                 } else {
                     addGroup();
                 }
