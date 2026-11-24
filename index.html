@@ -5678,7 +5678,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 ) : (
                                     <>
                                         {activeStreamSettings.cardStyle === 'compact' ? (
-                                            <div className="flex flex-col gap-0 divide-y divide-brand-200 dark:divide-darkborder border-y border-brand-200 dark:border-darkborder sm:border-0 sm:gap-1.5 sm:divide-y-0 max-w-4xl mx-auto">
+                                            <div className="flex flex-col gap-1 sm:gap-1.5 max-w-4xl mx-auto">
                                                 {displayedArticles.map((art, index) => (
                                                     <VirtualArticleShell
                                                         key={art.id}
@@ -5736,7 +5736,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                 ))}
                                             </div>
                                         ) : (
-                                            <div className="flex flex-col gap-0 divide-y divide-brand-200 dark:divide-darkborder border-y border-brand-200 dark:border-darkborder sm:border-0 sm:gap-3 sm:divide-y-0 max-w-4xl mx-auto">
+                                            <div className="flex flex-col gap-1.5 sm:gap-3 max-w-4xl mx-auto">
                                                 {displayedArticles.map((art, index) => (
                                                     <VirtualArticleShell
                                                         key={art.id}
