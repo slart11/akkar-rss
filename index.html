@@ -3997,6 +3997,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 duration: 0,
                 chunkIndex: 0,
                 totalChunks: 0,
+                chunks: [],
+                expanded: false,
                 isLoading: false,
                 isPlaying: false,
                 status: '',
@@ -4193,8 +4195,13 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         title: '',
                         source: '',
                         jobId: null,
+                        cached: false,
+                        currentTime: 0,
+                        duration: 0,
                         chunkIndex: 0,
                         totalChunks: 0,
+                        chunks: [],
+                        expanded: false,
                         isLoading: false,
                         isPlaying: false,
                         status: '',
@@ -4335,8 +4342,13 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     title: art.title || 'Artikkel',
                     source: '',
                     jobId: null,
+                    cached: false,
+                    currentTime: 0,
+                    duration: 0,
                     chunkIndex: 0,
                     totalChunks: 0,
+                    chunks: [],
+                    expanded: false,
                     isLoading: true,
                     isPlaying: false,
                     status: 'Henter artikkel og starter opplesing...',
@@ -4377,6 +4389,9 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                     const data = await res.json();
                     if (controller.signal.aborted) return;
+
+                    const fallbackChunks = [summaryText || art.title || ''].filter(Boolean);
+                    const respChunks = Array.isArray(data.chunks) && data.chunks.length > 0 ? data.chunks : fallbackChunks;
 
                     // Hvis artikkelen allerede er ferdig generert som MP3 på Mac-en: spill umiddelbart!
                     if (data.cached && data.key) {
@@ -4427,6 +4442,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                             source: data.source || 'full_article',
                             duration: data.duration || 0,
                             currentTime: 0,
+                            chunks: respChunks,
                             isLoading: false,
                             isPlaying: true,
                             status: 'Ferdig generert · Klar',
@@ -4441,6 +4457,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         jobId: data.job_id,
                         cached: false,
                         totalChunks: data.total_chunks,
+                        chunks: respChunks,
                         source: data.source,
                         status: `Genererer del 1 av ${data.total_chunks}...`,
                     }));
@@ -5735,6 +5752,46 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     {/* Akkar NB-TTS Opplesingsspiller */}
                     {ttsState.visible && (
                         <div className="fixed bottom-4 left-3 right-20 lg:left-[21rem] lg:right-24 z-40 max-w-2xl mx-auto rounded-2xl bg-white/95 dark:bg-darksidebar/95 backdrop-blur-md border border-brand-200 dark:border-darkborder shadow-2xl p-3 text-brand-900 dark:text-white">
+                            {ttsState.expanded && (
+                                <div className="mb-2.5 pb-2.5 border-b border-brand-100 dark:border-darkborder">
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-[11px] font-bold uppercase tracking-wider opacity-70">
+                                            Tekst som leses opp
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTtsState(prev => ({ ...prev, expanded: false }))}
+                                            className="text-[11px] px-2 py-0.5 rounded bg-brand-100 dark:bg-darkcard hover:bg-brand-200 dark:hover:bg-darkborder font-medium"
+                                        >
+                                            Skjul
+                                        </button>
+                                    </div>
+                                    <div className="max-h-56 overflow-y-auto pr-1 space-y-2 text-xs leading-relaxed select-text">
+                                        {ttsState.chunks && ttsState.chunks.length > 0 ? (
+                                            ttsState.chunks.map((chunkText, idx) => {
+                                                const isCurrent = !ttsState.cached && ttsState.totalChunks > 0 && idx === ttsState.chunkIndex;
+                                                const canJump = !ttsState.cached && ttsState.jobId && ttsState.totalChunks > 0;
+                                                return (
+                                                    <p
+                                                        key={idx}
+                                                        onClick={() => canJump && playTtsChunkAt(ttsState.jobId, idx, ttsState.totalChunks)}
+                                                        className={`p-2 rounded-lg transition-colors ${
+                                                            isCurrent
+                                                                ? 'bg-brand-600/15 dark:bg-brand-500/25 border border-brand-500/40 font-medium'
+                                                                : 'opacity-85 hover:bg-brand-50 dark:hover:bg-darkcard/60'
+                                                        } ${canJump ? 'cursor-pointer' : ''}`}
+                                                    >
+                                                        {chunkText}
+                                                    </p>
+                                                );
+                                            })
+                                        ) : (
+                                            <p className="opacity-70 italic">Henter tekst...</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex items-center gap-2.5">
                                 <button
                                     type="button"
@@ -5779,28 +5836,21 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 <div className="flex items-center gap-1 shrink-0">
                                     <button
                                         type="button"
-                                        onClick={() => skipTtsChunk(-1)}
-                                        disabled={!ttsState.jobId || ttsState.chunkIndex <= 0}
-                                        className="w-8 h-8 rounded-lg hover:bg-brand-100 dark:hover:bg-darkcard disabled:opacity-35 flex items-center justify-center"
-                                        title="Forrige del"
-                                        aria-label="Forrige del"
+                                        onClick={() => setTtsState(prev => ({ ...prev, expanded: !prev.expanded }))}
+                                        className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                            ttsState.expanded
+                                                ? 'bg-brand-600 text-white'
+                                                : 'hover:bg-brand-100 dark:hover:bg-darkcard'
+                                        }`}
+                                        title={ttsState.expanded ? 'Skjul tekst' : 'Utvid og vis tekst'}
+                                        aria-label={ttsState.expanded ? 'Skjul tekst' : 'Utvid og vis tekst'}
                                     >
                                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polygon points="19 20 9 12 19 4 19 20" />
-                                            <line x1="5" y1="19" x2="5" y2="5" />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => skipTtsChunk(1)}
-                                        disabled={!ttsState.jobId || ttsState.chunkIndex + 1 >= ttsState.totalChunks}
-                                        className="w-8 h-8 rounded-lg hover:bg-brand-100 dark:hover:bg-darkcard disabled:opacity-35 flex items-center justify-center"
-                                        title="Neste del"
-                                        aria-label="Neste del"
-                                    >
-                                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polygon points="5 4 15 12 5 20 5 4" />
-                                            <line x1="19" y1="5" x2="19" y2="19" />
+                                            {ttsState.expanded ? (
+                                                <polyline points="6 9 12 15 18 9" />
+                                            ) : (
+                                                <polyline points="18 15 12 9 6 15" />
+                                            )}
                                         </svg>
                                     </button>
                                     <button
@@ -5830,28 +5880,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 </div>
                             </div>
 
-                            {ttsState.cached && ttsState.duration > 0 && (
-                                <div className="mt-2 flex items-center gap-2 text-[11px] tabular-nums">
-                                    <span className="w-9 text-right opacity-75">{formatAudioTime(ttsState.currentTime)}</span>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max={ttsState.duration}
-                                        step="0.5"
-                                        value={Math.min(ttsState.currentTime, ttsState.duration)}
-                                        onChange={(e) => {
-                                            const t = parseFloat(e.target.value);
-                                            if (ttsAudioRef.current) ttsAudioRef.current.currentTime = t;
-                                            setTtsState(prev => ({ ...prev, currentTime: t }));
-                                        }}
-                                        className="flex-1 accent-emerald-600 cursor-pointer"
-                                        aria-label="Spol i opplesingen"
-                                    />
-                                    <span className="w-9 opacity-75">{formatAudioTime(ttsState.duration)}</span>
-                                </div>
-                            )}
-
-                            <div className="mt-2.5 pt-2 border-t border-brand-100 dark:border-darkborder flex flex-wrap items-center gap-3 text-[11px]">
+                            <div className="mt-2 pt-2 border-t border-brand-100 dark:border-darkborder flex flex-wrap items-center gap-3 text-[11px]">
                                 <div className="flex items-center gap-1">
                                     <button
                                         type="button"
@@ -5897,6 +5926,87 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                     />
                                 </div>
                             </div>
+
+                            {/* Spolelinje nederst i spilleren (både for MP3 og direktestrømming) */}
+                            {ttsState.cached && ttsState.duration > 0 ? (
+                                <div className="mt-2 pt-2 border-t border-brand-100 dark:border-darkborder flex items-center gap-2 text-[11px] tabular-nums">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const t = Math.max(0, (ttsAudioRef.current?.currentTime || 0) - 15);
+                                            if (ttsAudioRef.current) ttsAudioRef.current.currentTime = t;
+                                            setTtsState(prev => ({ ...prev, currentTime: t }));
+                                        }}
+                                        className="px-1.5 py-0.5 rounded bg-brand-100 dark:bg-darkcard hover:bg-brand-200 dark:hover:bg-darkborder font-semibold shrink-0"
+                                        title="Spol 15 sek tilbake"
+                                    >
+                                        -15s
+                                    </button>
+                                    <span className="w-9 text-right opacity-75 shrink-0">{formatAudioTime(ttsState.currentTime)}</span>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max={ttsState.duration}
+                                        step="0.5"
+                                        value={Math.min(ttsState.currentTime, ttsState.duration)}
+                                        onChange={(e) => {
+                                            const t = parseFloat(e.target.value);
+                                            if (ttsAudioRef.current) ttsAudioRef.current.currentTime = t;
+                                            setTtsState(prev => ({ ...prev, currentTime: t }));
+                                        }}
+                                        className="flex-1 accent-emerald-600 cursor-pointer"
+                                        aria-label="Spol i opplesingen"
+                                    />
+                                    <span className="w-9 opacity-75 shrink-0">{formatAudioTime(ttsState.duration)}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const t = Math.min(ttsState.duration, (ttsAudioRef.current?.currentTime || 0) + 15);
+                                            if (ttsAudioRef.current) ttsAudioRef.current.currentTime = t;
+                                            setTtsState(prev => ({ ...prev, currentTime: t }));
+                                        }}
+                                        className="px-1.5 py-0.5 rounded bg-brand-100 dark:bg-darkcard hover:bg-brand-200 dark:hover:bg-darkborder font-semibold shrink-0"
+                                        title="Spol 15 sek frem"
+                                    >
+                                        +15s
+                                    </button>
+                                </div>
+                            ) : ttsState.totalChunks > 0 ? (
+                                <div className="mt-2 pt-2 border-t border-brand-100 dark:border-darkborder flex items-center gap-2 text-[11px] tabular-nums">
+                                    <button
+                                        type="button"
+                                        onClick={() => skipTtsChunk(-1)}
+                                        disabled={!ttsState.jobId || ttsState.chunkIndex <= 0}
+                                        className="px-1.5 py-0.5 rounded bg-brand-100 dark:bg-darkcard disabled:opacity-35 font-semibold shrink-0"
+                                        title="Forrige del"
+                                    >
+                                        «
+                                    </button>
+                                    <span className="opacity-75 shrink-0">Del {ttsState.chunkIndex + 1}/{ttsState.totalChunks}</span>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max={Math.max(0, ttsState.totalChunks - 1)}
+                                        step="1"
+                                        value={ttsState.chunkIndex}
+                                        onChange={(e) => {
+                                            const idx = parseInt(e.target.value, 10);
+                                            if (ttsState.jobId) playTtsChunkAt(ttsState.jobId, idx, ttsState.totalChunks);
+                                        }}
+                                        className="flex-1 accent-brand-600 cursor-pointer"
+                                        aria-label="Spol mellom deler"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => skipTtsChunk(1)}
+                                        disabled={!ttsState.jobId || ttsState.chunkIndex + 1 >= ttsState.totalChunks}
+                                        className="px-1.5 py-0.5 rounded bg-brand-100 dark:bg-darkcard disabled:opacity-35 font-semibold shrink-0"
+                                        title="Neste del"
+                                    >
+                                        »
+                                    </button>
+                                </div>
+                            ) : null}
                         </div>
                     )}
 
