@@ -2426,6 +2426,52 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
             }, []);
 
             useEffect(() => {
+                if (localStorage.getItem('akkar_minerva_100_imported_v1')) return;
+                let cancelled = false;
+
+                const importMinerva100 = async () => {
+                    try {
+                        // Vent kort så IndexedDB-hydrering rekker å bli ferdig først
+                        await new Promise(r => setTimeout(r, 1200));
+                        if (cancelled) return;
+
+                        const res = await fetch('./minerva-100.json');
+                        if (!res.ok) return;
+                        const items = await res.json();
+                        if (!Array.isArray(items) || items.length === 0 || cancelled) return;
+
+                        const minervaFeed = foldersRef.current
+                            .flatMap(f => f.feeds || [])
+                            .find(feed => feed.id === 'feed-ino-minerva' || (feed.url || '').toLowerCase().includes('minerva'));
+                        if (!minervaFeed) return;
+
+                        const incoming = items
+                            .filter(it => it?.url && it?.title)
+                            .map((it, idx) => ({
+                                id: `${minervaFeed.id}::m100::${idx}::${it.url}`,
+                                feedId: minervaFeed.id,
+                                feedTitle: minervaFeed.title || 'Minerva',
+                                title: it.title,
+                                url: it.url,
+                                summary: it.summary || '',
+                                imageUrl: it.imageUrl || '',
+                                pubDate: it.pubDate || new Date().toISOString(),
+                                read: false,
+                                starred: false,
+                            }));
+
+                        setArticles(prev => mergeAndPruneArticles(prev, incoming));
+                        localStorage.setItem('akkar_minerva_100_imported_v1', '1');
+                    } catch (e) {
+                        console.warn('Kunne ikke importere siste 100 fra Minerva:', e);
+                    }
+                };
+
+                importMinerva100();
+                return () => { cancelled = true; };
+            }, []);
+
+            useEffect(() => {
                 return () => {
                     if (undoTimerRef.current) {
                         clearTimeout(undoTimerRef.current);
