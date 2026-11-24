@@ -4135,7 +4135,15 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 const timer = setTimeout(() => {
                     refreshTtsCachedStatus(displayedArticles);
                 }, 400);
-                return () => clearTimeout(timer);
+                const interval = setInterval(() => {
+                    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                        refreshTtsCachedStatus(displayedArticles);
+                    }
+                }, 20000);
+                return () => {
+                    clearTimeout(timer);
+                    clearInterval(interval);
+                };
             }, [displayedArticles, ttsSettings.serverUrl, ttsSettings.password]);
 
             const formatAudioTime = (sec) => {
@@ -8126,12 +8134,14 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                             e.stopPropagation();
                                             onSpeak(e);
                                         }}
-                                        className={`absolute top-1/2 right-11 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                                        className={`absolute top-1/2 right-11 -translate-y-1/2 w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${
                                             isTtsActive
-                                                ? 'bg-brand-600 text-white'
-                                                : 'text-brand-600 dark:text-brand-200 hover:bg-brand-50 dark:hover:bg-darksidebar'
+                                                ? 'bg-brand-600 border-brand-500 text-white'
+                                                : isTtsCached
+                                                    ? 'bg-white dark:bg-slate-500/40 border-brand-300 dark:border-slate-300/50 text-brand-700 dark:text-white hover:bg-brand-50 dark:hover:bg-slate-500/55'
+                                                    : 'bg-brand-200/75 dark:bg-black/45 border-brand-300/70 dark:border-white/10 text-brand-700/75 dark:text-brand-400/75 hover:bg-brand-200 dark:hover:bg-black/60'
                                         }`}
-                                        title={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
+                                        title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Ikke ferdig prosessert ennå'}
                                         aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                                     >
                                         <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
@@ -8217,14 +8227,14 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                     e.stopPropagation();
                                                     onSpeak(e);
                                                 }}
-                                                className={`w-8 h-8 rounded-lg border shadow-sm flex items-center justify-center ${
+                                                className={`w-8 h-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors ${
                                                     isTtsActive
                                                         ? 'bg-brand-600 border-brand-600 text-white'
                                                         : isTtsCached
-                                                            ? 'bg-emerald-500/15 dark:bg-emerald-500/20 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400'
-                                                            : 'bg-white/95 dark:bg-darksidebar/95 border-brand-200 dark:border-darkborder text-brand-700 dark:text-brand-100 hover:text-brand-600 hover:border-brand-400'
+                                                            ? 'bg-white dark:bg-slate-500/40 border-brand-300 dark:border-slate-300/50 text-brand-700 dark:text-white hover:border-brand-400 dark:hover:bg-slate-500/55'
+                                                            : 'bg-brand-200/75 dark:bg-black/45 border-brand-300/70 dark:border-white/10 text-brand-700/75 dark:text-brand-400/75 hover:border-brand-400 dark:hover:bg-black/60'
                                                 }`}
-                                                title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Les opp artikkel'}
+                                                title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Ikke ferdig prosessert ennå'}
                                                 aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                                             >
                                                 <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
@@ -8674,14 +8684,14 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                             e.stopPropagation();
                                             onSpeak(e);
                                         }}
-                                        className={`w-8 h-8 rounded-lg border flex items-center justify-center ${
+                                        className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${
                                             isTtsActive
                                                 ? 'bg-brand-600 border-brand-500 text-white'
                                                 : isTtsCached
-                                                    ? 'bg-emerald-500/15 dark:bg-emerald-500/20 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400'
-                                                    : 'bg-brand-50 dark:bg-darksidebar border-brand-200 dark:border-darkborder text-brand-700 dark:text-brand-100 hover:border-brand-400'
+                                                    ? 'bg-white dark:bg-slate-500/40 border-brand-300 dark:border-slate-300/50 text-brand-700 dark:text-white hover:border-brand-400 dark:hover:bg-slate-500/55'
+                                                    : 'bg-brand-200/75 dark:bg-black/45 border-brand-300/70 dark:border-white/10 text-brand-700/75 dark:text-brand-400/75 hover:border-brand-400 dark:hover:bg-black/60'
                                         }`}
-                                        title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Les opp artikkel'}
+                                        title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Ikke ferdig prosessert ennå'}
                                         aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                                     >
                                         <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
@@ -8782,14 +8792,14 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                     e.stopPropagation();
                                     onSpeak(e);
                                 }}
-                                className={`w-9 h-9 rounded-lg backdrop-blur-sm border flex items-center justify-center ${
+                                className={`w-9 h-9 rounded-lg backdrop-blur-sm border flex items-center justify-center transition-colors ${
                                     isTtsActive
                                         ? 'bg-brand-600 border-brand-500 text-white'
                                         : isTtsCached
-                                            ? 'bg-emerald-600/80 border-emerald-400 text-white hover:bg-emerald-600'
-                                            : 'bg-black/55 border-white/20 text-white hover:bg-black/75'
+                                            ? 'bg-white/30 border-white/60 text-white hover:bg-white/40'
+                                            : 'bg-black/70 border-white/15 text-white/65 hover:bg-black/85 hover:text-white'
                                 }`}
-                                title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Les opp artikkel'}
+                                title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Ikke ferdig prosessert ennå'}
                                 aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                             >
                                 <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
