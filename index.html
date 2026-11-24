@@ -3873,6 +3873,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 }
             });
             const [ttsSettingsOpen, setTtsSettingsOpen] = useState(false);
+            const [ttsCachedMap, setTtsCachedMap] = useState({});
             const [ttsState, setTtsState] = useState({
                 visible: false,
                 articleId: null,
@@ -3880,6 +3881,9 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 title: '',
                 source: '',
                 jobId: null,
+                cached: false,
+                currentTime: 0,
+                duration: 0,
                 chunkIndex: 0,
                 totalChunks: 0,
                 isLoading: false,
@@ -3894,6 +3898,44 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             const ttsActiveJobRef = useRef(null);
             const ttsSettingsRef = useRef(ttsSettings);
             ttsSettingsRef.current = ttsSettings;
+
+            const refreshTtsCachedStatus = async (arts) => {
+                const cfg = ttsSettingsRef.current;
+                const base = (cfg.serverUrl || '').replace(/\/+$/, '');
+                if (!base || !arts || arts.length === 0) return;
+                const urls = arts.map(a => a?.url).filter(Boolean).slice(0, 120);
+                if (urls.length === 0) return;
+                try {
+                    const res = await fetch(`${base}/api/tts/status`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...getTtsHeaders(cfg),
+                        },
+                        body: JSON.stringify({ urls }),
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data?.ready && typeof data.ready === 'object') {
+                        setTtsCachedMap(prev => ({ ...prev, ...data.ready }));
+                    }
+                } catch {}
+            };
+
+            useEffect(() => {
+                if (!displayedArticles || displayedArticles.length === 0) return;
+                const timer = setTimeout(() => {
+                    refreshTtsCachedStatus(displayedArticles);
+                }, 400);
+                return () => clearTimeout(timer);
+            }, [displayedArticles, ttsSettings.serverUrl, ttsSettings.password]);
+
+            const formatAudioTime = (sec) => {
+                if (!Number.isFinite(sec) || sec < 0) return '0:00';
+                const m = Math.floor(sec / 60);
+                const s = Math.floor(sec % 60);
+                return `${m}:${s < 10 ? '0' : ''}${s}`;
+            };
 
             const updateTtsSettings = (patch) => {
                 setTtsSettings(prev => {
@@ -4145,10 +4187,68 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     const data = await res.json();
                     if (controller.signal.aborted) return;
 
+                    // Hvis artikkelen allerede er ferdig generert som MP3 på Mac-en: spill umiddelbart!
+                    if (data.cached && data.key) {
+                        const cacheJobId = `cached:${data.key}`;
+                        ttsActiveJobRef.current = cacheJobId;
+                        const mp3Res = await fetch(`${base}/api/tts/cached/${data.key}.mp3`, {
+                            headers: getTtsHeaders(cfg),
+                            signal: controller.signal,
+                        });
+                        if (!mp3Res.ok) throw new Error(`Kunne ikke hente ferdig MP3 (${mp3Res.status})`);
+                        const blob = await mp3Res.blob();
+                        if (ttsActiveJobRef.current !== cacheJobId) return;
+                        const blobUrl = URL.createObjectURL(blob);
+                        ttsPrefetchRef.current.set(cacheJobId, { promise: Promise.resolve(blobUrl), url: blobUrl });
+
+                        const audio = ttsAudioRef.current || new Audio();
+                        ttsAudioRef.current = audio;
+                        audio.src = blobUrl;
+                        audio.playbackRate = ttsSettingsRef.current.speed || 1.0;
+                        audio.preservesPitch = true;
+                        audio.webkitPreservesPitch = true;
+
+                        audio.ontimeupdate = () => {
+                            if (ttsActiveJobRef.current === cacheJobId) {
+                                setTtsState(prev => ({
+                                    ...prev,
+                                    currentTime: audio.currentTime || 0,
+                                    duration: Number.isFinite(audio.duration) ? audio.duration : (data.duration || 0),
+                                }));
+                            }
+                        };
+                        audio.onended = () => {
+                            if (ttsActiveJobRef.current === cacheJobId) {
+                                setTtsState(prev => ({ ...prev, isPlaying: false, status: 'Ferdig opplest' }));
+                            }
+                        };
+                        audio.onerror = () => {
+                            if (ttsActiveJobRef.current === cacheJobId) {
+                                setTtsState(prev => ({ ...prev, isPlaying: false, isLoading: false, error: 'Kunne ikke spille av MP3.' }));
+                            }
+                        };
+
+                        await audio.play();
+                        setTtsState(prev => ({
+                            ...prev,
+                            jobId: cacheJobId,
+                            cached: true,
+                            source: data.source || 'full_article',
+                            duration: data.duration || 0,
+                            currentTime: 0,
+                            isLoading: false,
+                            isPlaying: true,
+                            status: 'Ferdig generert · Klar',
+                            error: '',
+                        }));
+                        return;
+                    }
+
                     ttsActiveJobRef.current = data.job_id;
                     setTtsState(prev => ({
                         ...prev,
                         jobId: data.job_id,
+                        cached: false,
                         totalChunks: data.total_chunks,
                         source: data.source,
                         status: `Genererer del 1 av ${data.total_chunks}...`,
@@ -5100,6 +5200,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                             isTtsActive={ttsState.articleId === art.id}
                                                             isTtsPlaying={ttsState.articleId === art.id && ttsState.isPlaying}
                                                             isTtsLoading={ttsState.articleId === art.id && ttsState.isLoading}
+                                                            isTtsCached={Boolean(art.url && ttsCachedMap[art.url])}
                                                             textScale={activeStreamSettings.textScale}
                                                             cardScale={activeStreamSettings.cardScale}
                                                         />
@@ -5128,6 +5229,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                             isTtsActive={ttsState.articleId === art.id}
                                                             isTtsPlaying={ttsState.articleId === art.id && ttsState.isPlaying}
                                                             isTtsLoading={ttsState.articleId === art.id && ttsState.isLoading}
+                                                            isTtsCached={Boolean(art.url && ttsCachedMap[art.url])}
                                                             textScale={activeStreamSettings.textScale}
                                                             cardScale={Math.max(75, activeStreamSettings.cardScale * 0.82)}
                                                             gridMode={true}
@@ -5156,6 +5258,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                             isTtsActive={ttsState.articleId === art.id}
                                                             isTtsPlaying={ttsState.articleId === art.id && ttsState.isPlaying}
                                                             isTtsLoading={ttsState.articleId === art.id && ttsState.isLoading}
+                                                            isTtsCached={Boolean(art.url && ttsCachedMap[art.url])}
                                                             textScale={activeStreamSettings.textScale}
                                                             cardScale={activeStreamSettings.cardScale}
                                                         />
@@ -5364,6 +5467,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                 isTtsActive={ttsState.articleId === article.id}
                                                 isTtsPlaying={ttsState.articleId === article.id && ttsState.isPlaying}
                                                 isTtsLoading={ttsState.articleId === article.id && ttsState.isLoading}
+                                                isTtsCached={Boolean(article.url && ttsCachedMap[article.url])}
                                             />
                                         </SavedVirtualArticleShell>
                                     ))}
@@ -5520,6 +5624,27 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                     </button>
                                 </div>
                             </div>
+
+                            {ttsState.cached && ttsState.duration > 0 && (
+                                <div className="mt-2 flex items-center gap-2 text-[11px] tabular-nums">
+                                    <span className="w-9 text-right opacity-75">{formatAudioTime(ttsState.currentTime)}</span>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max={ttsState.duration}
+                                        step="0.5"
+                                        value={Math.min(ttsState.currentTime, ttsState.duration)}
+                                        onChange={(e) => {
+                                            const t = parseFloat(e.target.value);
+                                            if (ttsAudioRef.current) ttsAudioRef.current.currentTime = t;
+                                            setTtsState(prev => ({ ...prev, currentTime: t }));
+                                        }}
+                                        className="flex-1 accent-emerald-600 cursor-pointer"
+                                        aria-label="Spol i opplesingen"
+                                    />
+                                    <span className="w-9 opacity-75">{formatAudioTime(ttsState.duration)}</span>
+                                </div>
+                            )}
 
                             <div className="mt-2.5 pt-2 border-t border-brand-100 dark:border-darkborder flex flex-wrap items-center gap-3 text-[11px]">
                                 <div className="flex items-center gap-1">
@@ -6989,7 +7114,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             );
         }
 
-        function SavedSwipeArticleItem({ article, onOpen, onToggleRead, onToggleStar, onSpeak, isTtsActive = false, isTtsPlaying = false, isTtsLoading = false }) {
+        function SavedSwipeArticleItem({ article, onOpen, onToggleRead, onToggleStar, onSpeak, isTtsActive = false, isTtsPlaying = false, isTtsLoading = false, isTtsCached = false }) {
             return (
                 <CardArticleItem
                     article={article}
@@ -7000,6 +7125,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     isTtsActive={isTtsActive}
                     isTtsPlaying={isTtsPlaying}
                     isTtsLoading={isTtsLoading}
+                    isTtsCached={isTtsCached}
                     savedPanelMode={true}
                 />
             );
@@ -7014,6 +7140,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             isTtsActive = false,
             isTtsPlaying = false,
             isTtsLoading = false,
+            isTtsCached = false,
             textScale = 100,
             cardScale = 100,
             savedPanelMode = false
@@ -7182,9 +7309,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                                 className={`w-8 h-8 rounded-lg border shadow-sm flex items-center justify-center ${
                                                     isTtsActive
                                                         ? 'bg-brand-600 border-brand-600 text-white'
-                                                        : 'bg-white/95 dark:bg-darksidebar/95 border-brand-200 dark:border-darkborder text-brand-700 dark:text-brand-100 hover:text-brand-600 hover:border-brand-400'
+                                                        : isTtsCached
+                                                            ? 'bg-emerald-500/15 dark:bg-emerald-500/20 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400'
+                                                            : 'bg-white/95 dark:bg-darksidebar/95 border-brand-200 dark:border-darkborder text-brand-700 dark:text-brand-100 hover:text-brand-600 hover:border-brand-400'
                                                 }`}
-                                                title={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
+                                                title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Les opp artikkel'}
                                                 aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                                             >
                                                 <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
@@ -7526,7 +7655,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             );
         }
 
-        function LargeArticleItem({ article, onOpen, onToggleRead, onToggleStar, onSpeak, isTtsActive = false, isTtsPlaying = false, isTtsLoading = false, textScale = 100, cardScale = 100, gridMode = false }) {
+        function LargeArticleItem({ article, onOpen, onToggleRead, onToggleStar, onSpeak, isTtsActive = false, isTtsPlaying = false, isTtsLoading = false, isTtsCached = false, textScale = 100, cardScale = 100, gridMode = false }) {
             const shareArticle = async () => {
                 let ingress = cleanRssSummary(article.summary || article.content || '');
                 ingress = ingress
@@ -7637,9 +7766,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                         className={`w-8 h-8 rounded-lg border flex items-center justify-center ${
                                             isTtsActive
                                                 ? 'bg-brand-600 border-brand-500 text-white'
-                                                : 'bg-brand-50 dark:bg-darksidebar border-brand-200 dark:border-darkborder text-brand-700 dark:text-brand-100 hover:border-brand-400'
+                                                : isTtsCached
+                                                    ? 'bg-emerald-500/15 dark:bg-emerald-500/20 border-emerald-500/60 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400'
+                                                    : 'bg-brand-50 dark:bg-darksidebar border-brand-200 dark:border-darkborder text-brand-700 dark:text-brand-100 hover:border-brand-400'
                                         }`}
-                                        title={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
+                                        title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Les opp artikkel'}
                                         aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                                     >
                                         <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
@@ -7743,9 +7874,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 className={`w-9 h-9 rounded-lg backdrop-blur-sm border flex items-center justify-center ${
                                     isTtsActive
                                         ? 'bg-brand-600 border-brand-500 text-white'
-                                        : 'bg-black/55 border-white/20 text-white hover:bg-black/75'
+                                        : isTtsCached
+                                            ? 'bg-emerald-600/80 border-emerald-400 text-white hover:bg-emerald-600'
+                                            : 'bg-black/55 border-white/20 text-white hover:bg-black/75'
                                 }`}
-                                title={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
+                                title={isTtsPlaying ? 'Pause opplesing' : isTtsCached ? 'Klar til avspilling (ferdig generert)' : 'Les opp artikkel'}
                                 aria-label={isTtsPlaying ? 'Pause opplesing' : 'Les opp artikkel'}
                             >
                                 <ArticleActionIcon name={isTtsPlaying ? 'pause' : 'volume-2'} className={`w-4 h-4 ${isTtsLoading ? 'animate-pulse' : ''}`} />
