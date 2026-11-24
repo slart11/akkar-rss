@@ -4178,10 +4178,61 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             };
 
             useEffect(() => {
+                loadTtsFeedsFromMac();
+            }, [ttsSettings.serverUrl, ttsSettings.password]);
+
+            useEffect(() => {
                 if (ttsSettingsOpen) {
                     loadTtsFeedsFromMac();
                 }
             }, [ttsSettingsOpen]);
+
+            const toggleAndSaveTtsFeed = async (feedUrl, feedTitle = 'Feed') => {
+                if (!feedUrl) return;
+                const cfg = ttsSettingsRef.current;
+                const base = (cfg.serverUrl || '').replace(/\/+$/, '');
+                if (!base) {
+                    setTtsSettingsOpen(true);
+                    return;
+                }
+
+                const targetNorm = normFeedUrl(feedUrl);
+                const exists = ttsAutoFeeds.some(u => normFeedUrl(u) === targetNorm);
+                const nextFeeds = exists
+                    ? ttsAutoFeeds.filter(u => normFeedUrl(u) !== targetNorm)
+                    : [...ttsAutoFeeds, feedUrl];
+
+                setTtsAutoFeeds(nextFeeds);
+                try {
+                    const res = await fetch(`${base}/api/tts/feeds`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...getTtsHeaders(cfg),
+                        },
+                        body: JSON.stringify({
+                            feeds: nextFeeds,
+                            max_per_feed: ttsMaxPerFeed,
+                            voice: cfg.voice || 'kvinne',
+                            steps: cfg.steps || 8,
+                            run_now: !exists,
+                        }),
+                    });
+                    if (res.status === 401) {
+                        setTtsSettingsOpen(true);
+                        showToast('Skriv inn TTS-passord for å lagre til Mac');
+                        return;
+                    }
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    showToast(
+                        exists
+                            ? `${feedTitle}: automatisk opplesing slått av`
+                            : `${feedTitle}: klargjøres nå automatisk på Mac`
+                    );
+                } catch (err) {
+                    showToast(`Kunne ikke lagre til Mac: ${err?.message || 'Nettverksfeil'}`);
+                }
+            };
 
             const updateTtsSettings = (patch) => {
                 setTtsSettings(prev => {
@@ -6338,13 +6389,41 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                     {contextMenu && (
                         <div
-                            className="fixed z-[140] w-44 rounded-xl bg-white dark:bg-darkcard border border-brand-200 dark:border-darkborder shadow-2xl overflow-hidden py-1"
+                            className="fixed z-[140] w-52 rounded-xl bg-white dark:bg-darkcard border border-brand-200 dark:border-darkborder shadow-2xl overflow-hidden py-1"
                             style={{
-                                left: `${Math.max(8, Math.min(contextMenu.x, window.innerWidth - 184))}px`,
-                                top: `${Math.max(8, Math.min(contextMenu.y, window.innerHeight - 152))}px`
+                                left: `${Math.max(8, Math.min(contextMenu.x, window.innerWidth - 216))}px`,
+                                top: `${Math.max(8, Math.min(contextMenu.y, window.innerHeight - 210))}px`
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
+                            {contextMenu.type === 'feed' && (() => {
+                                const folder = folders.find(f => f.id === contextMenu.folderId);
+                                const feed = folder?.feeds?.find(fd => fd.id === contextMenu.feedId);
+                                const isAutoTts = Boolean(feed?.url && ttsAutoFeeds.some(u => normFeedUrl(u) === normFeedUrl(feed.url)));
+                                return (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const menu = contextMenu;
+                                            setContextMenu(null);
+                                            if (feed?.url) {
+                                                toggleAndSaveTtsFeed(feed.url, feed.title || menu.name);
+                                            }
+                                        }}
+                                        className={`w-full px-3 py-2 flex items-center gap-2 text-sm text-left hover:bg-brand-50 dark:hover:bg-darksidebar ${
+                                            isAutoTts
+                                                ? 'text-emerald-700 dark:text-emerald-300 font-medium'
+                                                : 'text-brand-900 dark:text-white'
+                                        }`}
+                                    >
+                                        <ArticleActionIcon name="volume-2" className="w-4 h-4 shrink-0" />
+                                        <span className="truncate flex-1">
+                                            {isAutoTts ? 'Auto-TTS: På' : 'Klargjør automatisk'}
+                                        </span>
+                                        {isAutoTts && <span className="text-xs font-bold">✓</span>}
+                                    </button>
+                                );
+                            })()}
                             {contextMenu.type === 'feed' && (
                                 <button
                                     type="button"
