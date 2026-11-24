@@ -3980,6 +3980,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             });
             const [ttsSettingsOpen, setTtsSettingsOpen] = useState(false);
             const [ttsCachedMap, setTtsCachedMap] = useState({});
+            const [ttsAutoFeeds, setTtsAutoFeeds] = useState([]);
+            const [ttsMaxPerFeed, setTtsMaxPerFeed] = useState(5);
+            const [ttsFeedsStatus, setTtsFeedsStatus] = useState('');
+            const [ttsFeedsLoading, setTtsFeedsLoading] = useState(false);
+            const [ttsFeedsSaving, setTtsFeedsSaving] = useState(false);
             const [ttsState, setTtsState] = useState({
                 visible: false,
                 articleId: null,
@@ -4042,6 +4047,86 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 const s = Math.floor(sec % 60);
                 return `${m}:${s < 10 ? '0' : ''}${s}`;
             };
+
+            const normFeedUrl = (u) => (u || '').trim().toLowerCase().replace(/^http:\/\//, 'https://').replace(/\/+$/, '');
+
+            const loadTtsFeedsFromMac = async () => {
+                const cfg = ttsSettingsRef.current;
+                const base = (cfg.serverUrl || '').replace(/\/+$/, '');
+                if (!base) return;
+                setTtsFeedsLoading(true);
+                setTtsFeedsStatus('');
+                try {
+                    const res = await fetch(`${base}/api/tts/feeds`, {
+                        headers: getTtsHeaders(cfg),
+                    });
+                    if (res.status === 401) {
+                        setTtsFeedsStatus('Skriv inn passord for å hente feed-valg fra Mac.');
+                        return;
+                    }
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    setTtsAutoFeeds(Array.isArray(data.feeds) ? data.feeds : []);
+                    if (data.max_per_feed) setTtsMaxPerFeed(Number(data.max_per_feed) || 5);
+                } catch (err) {
+                    setTtsFeedsStatus(`Kunne ikke hente fra Mac: ${err?.message || 'Nettverksfeil'}`);
+                } finally {
+                    setTtsFeedsLoading(false);
+                }
+            };
+
+            const toggleTtsAutoFeed = (feedUrl) => {
+                const targetNorm = normFeedUrl(feedUrl);
+                setTtsAutoFeeds(prev => {
+                    const exists = prev.some(u => normFeedUrl(u) === targetNorm);
+                    if (exists) {
+                        return prev.filter(u => normFeedUrl(u) !== targetNorm);
+                    }
+                    return [...prev, feedUrl];
+                });
+            };
+
+            const saveTtsFeedsToMac = async () => {
+                const cfg = ttsSettingsRef.current;
+                const base = (cfg.serverUrl || '').replace(/\/+$/, '');
+                if (!base) return;
+                setTtsFeedsSaving(true);
+                setTtsFeedsStatus('Lagrer til Mac...');
+                try {
+                    const res = await fetch(`${base}/api/tts/feeds`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...getTtsHeaders(cfg),
+                        },
+                        body: JSON.stringify({
+                            feeds: ttsAutoFeeds,
+                            max_per_feed: ttsMaxPerFeed,
+                            voice: cfg.voice || 'kvinne',
+                            steps: cfg.steps || 8,
+                            run_now: true,
+                        }),
+                    });
+                    if (res.status === 401) {
+                        setTtsFeedsStatus('Feil passord – fyll inn passord over.');
+                        return;
+                    }
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    setTtsAutoFeeds(Array.isArray(data.feeds) ? data.feeds : ttsAutoFeeds);
+                    setTtsFeedsStatus(`Lagret ${data.feeds?.length || 0} feeder til Mac! Nye artikler forberedes nå i bakgrunnen.`);
+                } catch (err) {
+                    setTtsFeedsStatus(`Kunne ikke lagre: ${err?.message || 'Nettverksfeil'}`);
+                } finally {
+                    setTtsFeedsSaving(false);
+                }
+            };
+
+            useEffect(() => {
+                if (ttsSettingsOpen) {
+                    loadTtsFeedsFromMac();
+                }
+            }, [ttsSettingsOpen]);
 
             const updateTtsSettings = (patch) => {
                 setTtsSettings(prev => {
@@ -4733,14 +4818,28 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 </div>
                             </div>
 
-                            <button
-                                onClick={createFolderFromSidebar}
-                                className="shrink-0 p-2 rounded-lg border border-brand-200 dark:border-darkborder bg-white dark:bg-darkcard hover:border-brand-400 text-brand-700 dark:text-accent-300"
-                                title="Ny mappe"
-                                aria-label="Ny mappe"
-                            >
-                                <i data-lucide="folder-plus" className="w-4 h-4"></i>
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                    onClick={() => {
+                                        if (mobile) setIsMenuOpen(false);
+                                        setTtsSettingsOpen(true);
+                                    }}
+                                    className="shrink-0 p-2 rounded-lg border border-brand-200 dark:border-darkborder bg-white dark:bg-darkcard hover:border-brand-400 text-brand-700 dark:text-accent-300"
+                                    title="Opplesing (NB-TTS) og auto-henting per feed"
+                                    aria-label="Opplesing (NB-TTS) og auto-henting per feed"
+                                >
+                                    <ArticleActionIcon name="volume-2" className="w-4 h-4" />
+                                </button>
+
+                                <button
+                                    onClick={createFolderFromSidebar}
+                                    className="shrink-0 p-2 rounded-lg border border-brand-200 dark:border-darkborder bg-white dark:bg-darkcard hover:border-brand-400 text-brand-700 dark:text-accent-300"
+                                    title="Ny mappe"
+                                    aria-label="Ny mappe"
+                                >
+                                    <i data-lucide="folder-plus" className="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <div
@@ -5804,8 +5903,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     {/* TTS-innstillinger modal */}
                     {ttsSettingsOpen && (
                         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-                            <div className="bg-white dark:bg-darkcard border border-brand-100 dark:border-darkborder rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4 text-brand-900 dark:text-white">
-                                <div className="flex justify-between items-center border-b border-brand-100 dark:border-darkborder pb-3">
+                            <div className="bg-white dark:bg-darkcard border border-brand-100 dark:border-darkborder rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl p-5 text-brand-900 dark:text-white">
+                                <div className="flex justify-between items-center border-b border-brand-100 dark:border-darkborder pb-3 shrink-0">
                                     <h3 className="font-bold text-base">Opplesing (NB-TTS) – Innstillinger</h3>
                                     <button
                                         type="button"
@@ -5817,7 +5916,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                     </button>
                                 </div>
 
-                                <div className="space-y-3 text-xs">
+                                <div className="space-y-3 text-xs overflow-y-auto pr-1 py-3 flex-1">
                                     <div>
                                         <label className="block font-semibold mb-1">TTS-server URL</label>
                                         <input
@@ -5886,9 +5985,106 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                             ))}
                                         </div>
                                     </div>
+
+                                    {/* Automatisk bakgrunns-TTS per feed */}
+                                    <div className="pt-2 border-t border-brand-100 dark:border-darkborder space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div>
+                                                <div className="font-semibold">Automatisk forhåndsgenerering per feed</div>
+                                                <div className="text-[10px] opacity-70">
+                                                    Velg hvilke feeder Mac-en skal hente og lese inn som MP3 hver time ({ttsAutoFeeds.length} valgt)
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const allUrls = [];
+                                                        folders.forEach(f => (f.feeds || []).forEach(feed => { if (feed.url) allUrls.push(feed.url); }));
+                                                        setTtsAutoFeeds(allUrls);
+                                                    }}
+                                                    className="px-2 py-1 rounded bg-brand-100 dark:bg-darksidebar text-[10px] font-medium"
+                                                >
+                                                    Velg alle
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTtsAutoFeeds([])}
+                                                    className="px-2 py-1 rounded bg-brand-100 dark:bg-darksidebar text-[10px] font-medium"
+                                                >
+                                                    Ingen
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                                            <span>Maks nyeste artikler per feed:</span>
+                                            <select
+                                                value={ttsMaxPerFeed}
+                                                onChange={(e) => setTtsMaxPerFeed(Number(e.target.value))}
+                                                className="px-2 py-1 rounded bg-brand-50 dark:bg-darksidebar border border-brand-200 dark:border-darkborder"
+                                            >
+                                                {[2, 3, 5, 8, 10, 15].map(n => (
+                                                    <option key={n} value={n}>{n} stk</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {ttsFeedsLoading ? (
+                                            <div className="py-3 text-center opacity-70">Henter aktive valg fra Mac...</div>
+                                        ) : (
+                                            <div className="max-h-52 overflow-y-auto rounded-xl border border-brand-100 dark:border-darkborder bg-brand-50/50 dark:bg-darksidebar/60 p-2 space-y-2">
+                                                {folders.filter(f => (f.feeds || []).length > 0).map(folder => (
+                                                    <div key={folder.id}>
+                                                        <div className="text-[10px] font-bold uppercase tracking-wider opacity-60 px-1 mb-1">
+                                                            {folder.name}
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {(folder.feeds || []).map(feed => {
+                                                                const checked = ttsAutoFeeds.some(u => normFeedUrl(u) === normFeedUrl(feed.url));
+                                                                return (
+                                                                    <label
+                                                                        key={feed.id || feed.url}
+                                                                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-brand-100/70 dark:hover:bg-darkcard cursor-pointer"
+                                                                    >
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={checked}
+                                                                            onChange={() => toggleTtsAutoFeed(feed.url)}
+                                                                            className="rounded accent-emerald-600 w-4 h-4 shrink-0"
+                                                                        />
+                                                                        <span className="truncate flex-1 font-medium">{feed.title}</span>
+                                                                        {checked && (
+                                                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 shrink-0">
+                                                                                Auto
+                                                                            </span>
+                                                                        )}
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {ttsFeedsStatus && (
+                                            <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                                                {ttsFeedsStatus}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
-                                <div className="flex justify-end gap-2 pt-2">
+                                <div className="flex justify-end gap-2 pt-3 border-t border-brand-100 dark:border-darkborder shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={saveTtsFeedsToMac}
+                                        disabled={ttsFeedsSaving}
+                                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-semibold"
+                                    >
+                                        {ttsFeedsSaving ? 'Lagrer...' : 'Lagre feed-valg til Mac'}
+                                    </button>
                                     {ttsState.article && (
                                         <button
                                             type="button"
@@ -5898,7 +6094,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                             }}
                                             className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold"
                                         >
-                                            Lagre og prøv igjen
+                                            Prøv igjen
                                         </button>
                                     )}
                                     <button
