@@ -4062,6 +4062,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 voice: 'kvinne',
                 steps: 8,
                 speed: 1.0,
+                waitForFull: false,
             };
 
             const [ttsSettings, setTtsSettings] = useState(() => {
@@ -4480,6 +4481,31 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 }
             };
 
+            const fetchTtsJobStatus = async (jobId, signal) => {
+                const cfg = ttsSettingsRef.current;
+                const base = (cfg.serverUrl || '').replace(/\/+$/, '');
+                const res = await fetch(`${base}/api/tts/job/${jobId}/status`, {
+                    headers: getTtsHeaders(cfg),
+                    signal,
+                });
+                if (res.status === 401) throw new Error('AUTH_REQUIRED');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            };
+
+            const sleepWithSignal = (ms, signal) => new Promise((resolve, reject) => {
+                if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+                const t = setTimeout(() => {
+                    signal?.removeEventListener('abort', onAbort);
+                    resolve();
+                }, ms);
+                const onAbort = () => {
+                    clearTimeout(t);
+                    reject(new DOMException('Aborted', 'AbortError'));
+                };
+                signal?.addEventListener('abort', onAbort, { once: true });
+            });
+
             const fetchTtsChunkUrl = (jobId, idx, signal) => {
                 const key = `${jobId}:${idx}`;
                 const existing = ttsPrefetchRef.current.get(key);
@@ -4487,20 +4513,143 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                 const cfg = ttsSettingsRef.current;
                 const base = (cfg.serverUrl || '').replace(/\/+$/, '');
-                const promise = fetch(`${base}/api/tts/chunk/${jobId}/${idx}`, {
-                    headers: getTtsHeaders(cfg),
-                    signal,
-                }).then(async (res) => {
+
+                const promise = (async () => {
+                    // Poll status til denne bolken er ferdig prosessert (unngår Cloudflare 100s timeout)
+                    while (true) {
+                        if (signal?.aborted || ttsActiveJobRef.current !== jobId) {
+                            throw new DOMException('Aborted', 'AbortError');
+                        }
+                        const st = await fetchTtsJobStatus(jobId, signal);
+                        if (st.error) throw new Error(st.error);
+                        if (Array.isArray(st.ready_chunks) && st.ready_chunks.includes(idx)) {
+                            break;
+                        }
+                        if (st.stopped || st.done) {
+                            throw new Error('Opplesing avbrutt før denne delen ble klar.');
+                        }
+                        await sleepWithSignal(800, signal);
+                    }
+
+                    const res = await fetch(`${base}/api/tts/chunk/${jobId}/${idx}`, {
+                        headers: getTtsHeaders(cfg),
+                        signal,
+                    });
                     if (res.status === 401) throw new Error('AUTH_REQUIRED');
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
                     ttsPrefetchRef.current.set(key, { promise: Promise.resolve(url), url });
                     return url;
-                });
+                })();
 
                 ttsPrefetchRef.current.set(key, { promise, url: null });
                 return promise;
+            };
+
+            const playCachedMp3ByKey = async (cacheKey, durationHint, source, respChunks, signal) => {
+                const cfg = ttsSettingsRef.current;
+                const base = (cfg.serverUrl || '').replace(/\/+$/, '');
+                const cacheJobId = `cached:${cacheKey}`;
+                ttsActiveJobRef.current = cacheJobId;
+
+                const mp3Res = await fetch(`${base}/api/tts/cached/${cacheKey}.mp3`, {
+                    headers: getTtsHeaders(cfg),
+                    signal,
+                });
+                if (!mp3Res.ok) throw new Error(`Kunne ikke hente ferdig MP3 (${mp3Res.status})`);
+                const blob = await mp3Res.blob();
+                if (ttsActiveJobRef.current !== cacheJobId) return;
+                const blobUrl = URL.createObjectURL(blob);
+                ttsPrefetchRef.current.set(cacheJobId, { promise: Promise.resolve(blobUrl), url: blobUrl });
+
+                const audio = ttsAudioRef.current || new Audio();
+                ttsAudioRef.current = audio;
+                audio.src = blobUrl;
+                audio.playbackRate = ttsSettingsRef.current.speed || 1.0;
+                audio.preservesPitch = true;
+                audio.webkitPreservesPitch = true;
+
+                audio.ontimeupdate = () => {
+                    if (ttsActiveJobRef.current === cacheJobId) {
+                        setTtsState(prev => ({
+                            ...prev,
+                            currentTime: audio.currentTime || 0,
+                            duration: Number.isFinite(audio.duration) ? audio.duration : (durationHint || 0),
+                        }));
+                    }
+                };
+                audio.onended = () => {
+                    if (ttsActiveJobRef.current === cacheJobId) {
+                        setTtsState(prev => ({ ...prev, isPlaying: false, status: 'Ferdig opplest' }));
+                    }
+                };
+                audio.onerror = () => {
+                    if (ttsActiveJobRef.current === cacheJobId) {
+                        setTtsState(prev => ({ ...prev, isPlaying: false, isLoading: false, error: 'Kunne ikke spille av MP3.' }));
+                    }
+                };
+
+                try {
+                    await audio.play();
+                    setTtsState(prev => ({
+                        ...prev,
+                        jobId: cacheJobId,
+                        cached: true,
+                        source: source || 'full_article',
+                        duration: durationHint || 0,
+                        currentTime: 0,
+                        chunks: respChunks,
+                        isLoading: false,
+                        isPlaying: true,
+                        status: 'Ferdig generert · Klar',
+                        error: '',
+                    }));
+                } catch (playErr) {
+                    if (playErr?.name === 'NotAllowedError') {
+                        setTtsState(prev => ({
+                            ...prev,
+                            jobId: cacheJobId,
+                            cached: true,
+                            source: source || 'full_article',
+                            duration: durationHint || 0,
+                            currentTime: 0,
+                            chunks: respChunks,
+                            isLoading: false,
+                            isPlaying: false,
+                            status: 'Hele er klar – trykk Play for å starte',
+                            error: '',
+                        }));
+                    } else {
+                        throw playErr;
+                    }
+                }
+            };
+
+            const waitForFullJobAndPlay = async (jobId, totalChunks, source, respChunks, signal) => {
+                ttsActiveJobRef.current = jobId;
+                if (ttsAudioRef.current) {
+                    ttsAudioRef.current.onended = null;
+                    ttsAudioRef.current.pause();
+                }
+                while (true) {
+                    if (signal?.aborted || ttsActiveJobRef.current !== jobId) return;
+                    const st = await fetchTtsJobStatus(jobId, signal);
+                    if (st.error) throw new Error(st.error);
+                    if (st.stopped) return;
+                    if (st.done && st.cache_key) {
+                        await playCachedMp3ByKey(st.cache_key, st.duration, source, respChunks, signal);
+                        return;
+                    }
+                    setTtsState(prev => prev.jobId === jobId ? {
+                        ...prev,
+                        isLoading: true,
+                        isPlaying: false,
+                        status: `Venter på hele artikkelen (${st.completed_count}/${totalChunks} deler)...`,
+                        error: '',
+                    } : prev);
+                    await sleepWithSignal(800, signal);
+                }
             };
 
             const playTtsChunkAt = async (jobId, idx, totalChunks) => {
@@ -4520,7 +4669,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     ...prev,
                     chunkIndex: idx,
                     isLoading: true,
-                    status: `Laster del ${idx + 1} av ${totalChunks}...`,
+                    isPlaying: false,
+                    status: `Venter på del ${idx + 1} av ${totalChunks}...`,
                     error: '',
                 } : prev);
 
@@ -4528,7 +4678,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     const audioUrl = await fetchTtsChunkUrl(jobId, idx, signal);
                     if (ttsActiveJobRef.current !== jobId) return;
 
-                    // Prefetch neste del i bakgrunnen for sømløs avspilling
+                    // Prefetch neste del i bakgrunnen mens denne spiller
                     if (idx + 1 < totalChunks) {
                         fetchTtsChunkUrl(jobId, idx + 1, signal).catch(() => {});
                     }
@@ -4551,7 +4701,22 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         }
                     };
 
-                    await audio.play();
+                    try {
+                        await audio.play();
+                    } catch (playErr) {
+                        if (playErr?.name === 'NotAllowedError') {
+                            setTtsState(prev => prev.jobId === jobId ? {
+                                ...prev,
+                                chunkIndex: idx,
+                                isLoading: false,
+                                isPlaying: false,
+                                status: `Del ${idx + 1} klar – trykk Play for å fortsette`,
+                                error: '',
+                            } : prev);
+                            return;
+                        }
+                        throw playErr;
+                    }
                     if (ttsActiveJobRef.current !== jobId) return;
 
                     setTtsState(prev => prev.jobId === jobId ? {
@@ -4665,59 +4830,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                     // Hvis artikkelen allerede er ferdig generert som MP3 på Mac-en: spill umiddelbart!
                     if (data.cached && data.key) {
-                        const cacheJobId = `cached:${data.key}`;
-                        ttsActiveJobRef.current = cacheJobId;
-                        const mp3Res = await fetch(`${base}/api/tts/cached/${data.key}.mp3`, {
-                            headers: getTtsHeaders(cfg),
-                            signal: controller.signal,
-                        });
-                        if (!mp3Res.ok) throw new Error(`Kunne ikke hente ferdig MP3 (${mp3Res.status})`);
-                        const blob = await mp3Res.blob();
-                        if (ttsActiveJobRef.current !== cacheJobId) return;
-                        const blobUrl = URL.createObjectURL(blob);
-                        ttsPrefetchRef.current.set(cacheJobId, { promise: Promise.resolve(blobUrl), url: blobUrl });
-
-                        const audio = ttsAudioRef.current || new Audio();
-                        ttsAudioRef.current = audio;
-                        audio.src = blobUrl;
-                        audio.playbackRate = ttsSettingsRef.current.speed || 1.0;
-                        audio.preservesPitch = true;
-                        audio.webkitPreservesPitch = true;
-
-                        audio.ontimeupdate = () => {
-                            if (ttsActiveJobRef.current === cacheJobId) {
-                                setTtsState(prev => ({
-                                    ...prev,
-                                    currentTime: audio.currentTime || 0,
-                                    duration: Number.isFinite(audio.duration) ? audio.duration : (data.duration || 0),
-                                }));
-                            }
-                        };
-                        audio.onended = () => {
-                            if (ttsActiveJobRef.current === cacheJobId) {
-                                setTtsState(prev => ({ ...prev, isPlaying: false, status: 'Ferdig opplest' }));
-                            }
-                        };
-                        audio.onerror = () => {
-                            if (ttsActiveJobRef.current === cacheJobId) {
-                                setTtsState(prev => ({ ...prev, isPlaying: false, isLoading: false, error: 'Kunne ikke spille av MP3.' }));
-                            }
-                        };
-
-                        await audio.play();
-                        setTtsState(prev => ({
-                            ...prev,
-                            jobId: cacheJobId,
-                            cached: true,
-                            source: data.source || 'full_article',
-                            duration: data.duration || 0,
-                            currentTime: 0,
-                            chunks: respChunks,
-                            isLoading: false,
-                            isPlaying: true,
-                            status: 'Ferdig generert · Klar',
-                            error: '',
-                        }));
+                        await playCachedMp3ByKey(data.key, data.duration, data.source, respChunks, controller.signal);
                         return;
                     }
 
@@ -4729,10 +4842,16 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         totalChunks: data.total_chunks,
                         chunks: respChunks,
                         source: data.source,
-                        status: `Genererer del 1 av ${data.total_chunks}...`,
+                        status: cfg.waitForFull
+                            ? `Venter på hele artikkelen (0/${data.total_chunks} deler)...`
+                            : `Genererer del 1 av ${data.total_chunks}...`,
                     }));
 
-                    playTtsChunkAt(data.job_id, 0, data.total_chunks);
+                    if (cfg.waitForFull) {
+                        await waitForFullJobAndPlay(data.job_id, data.total_chunks, data.source, respChunks, controller.signal);
+                    } else {
+                        playTtsChunkAt(data.job_id, 0, data.total_chunks);
+                    }
                 } catch (err) {
                     if (err?.name === 'AbortError') return;
                     setTtsState(prev => ({
@@ -6234,6 +6353,25 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                         }`}
                                     >
                                         Mann
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const nextWait = !ttsSettings.waitForFull;
+                                            updateTtsSettings({ waitForFull: nextWait });
+                                            if (nextWait && ttsState.jobId && !ttsState.cached && ttsState.totalChunks > 0) {
+                                                const sig = ttsAbortRef.current?.signal;
+                                                waitForFullJobAndPlay(ttsState.jobId, ttsState.totalChunks, ttsState.source, ttsState.chunks, sig).catch(() => {});
+                                            }
+                                        }}
+                                        className={`ml-1 px-2 py-0.5 rounded-md font-medium border ${
+                                            ttsSettings.waitForFull
+                                                ? 'bg-emerald-600 border-emerald-600 text-white'
+                                                : 'bg-brand-100/70 dark:bg-darkcard border-brand-200 dark:border-darkborder text-brand-800 dark:text-brand-200'
+                                        }`}
+                                        title="Vent til hele artikkelen er ferdig før avspilling starter"
+                                    >
+                                        {ttsSettings.waitForFull ? 'Vent på hele ✓' : 'Vent på hele'}
                                     </button>
                                 </div>
 
