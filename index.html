@@ -3952,6 +3952,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         : article
                 ));
 
+                const isUnreadAfterMark = (article) => !article.read && !changedIdSet.has(article.id);
+                const unreadFeedIds = new Set(
+                    articles.filter(isUnreadAfterMark).map(article => article.feedId)
+                );
+
                 const allFeedsInOrder = folders.flatMap(folder =>
                     (folder.feeds || []).map(feed => ({
                         type: 'feed',
@@ -3962,9 +3967,18 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                 if (activeFilter.type === 'feed' && allFeedsInOrder.length > 0) {
                     const currentFeedIdx = allFeedsInOrder.findIndex(f => f.id === activeFilter.id);
-                    const nextFeed = allFeedsInOrder[(currentFeedIdx + 1 + allFeedsInOrder.length) % allFeedsInOrder.length];
-                    if (nextFeed) {
-                        setActiveFilter(nextFeed);
+                    let nextUnreadFeed = null;
+                    for (let offset = 1; offset <= allFeedsInOrder.length; offset++) {
+                        const candidate = allFeedsInOrder[(currentFeedIdx + offset + allFeedsInOrder.length) % allFeedsInOrder.length];
+                        if (candidate && candidate.id !== activeFilter.id && unreadFeedIds.has(candidate.id)) {
+                            nextUnreadFeed = candidate;
+                            break;
+                        }
+                    }
+                    if (nextUnreadFeed) {
+                        setActiveFilter(nextUnreadFeed);
+                    } else {
+                        showToast('Alle artikler er lest');
                     }
                     return;
                 }
@@ -3983,7 +3997,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     return [{
                         type: 'folder',
                         id: folder.id,
-                        name: folder.name
+                        name: folder.name,
+                        feedIds: (folder.feeds || []).map(feed => feed.id)
                     }];
                 });
 
@@ -3992,14 +4007,28 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     return;
                 }
 
+                const unitHasUnread = (unit) => {
+                    if (unit.type === 'feed') return unreadFeedIds.has(unit.id);
+                    return (unit.feedIds || []).some(fid => unreadFeedIds.has(fid));
+                };
+
                 const currentFolderIndex = activeFilter.type === 'folder'
                     ? streamUnits.findIndex(unit => unit.id === activeFilter.id)
                     : -1;
 
-                const nextStream = streamUnits[(currentFolderIndex + 1 + streamUnits.length) % streamUnits.length];
+                let nextUnreadStream = null;
+                for (let offset = 1; offset <= streamUnits.length; offset++) {
+                    const candidate = streamUnits[(currentFolderIndex + offset + streamUnits.length) % streamUnits.length];
+                    if (candidate && !(candidate.type === activeFilter.type && candidate.id === activeFilter.id) && unitHasUnread(candidate)) {
+                        nextUnreadStream = { type: candidate.type, id: candidate.id, name: candidate.name };
+                        break;
+                    }
+                }
 
-                if (nextStream) {
-                    setActiveFilter(nextStream);
+                if (nextUnreadStream) {
+                    setActiveFilter(nextUnreadStream);
+                } else {
+                    showToast('Alle artikler er lest');
                 }
             };
 
