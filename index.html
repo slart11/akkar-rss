@@ -2239,6 +2239,34 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                     ? activeStreamKey
                     : (useParentFolderSettings ? parentFolderStreamKey : null);
 
+            const getEffectiveStreamSettings = (filterType, filterId) => {
+                if (!filterType || !filterId) {
+                    return { ...defaultStreamSettings, ...globalStreamSettings };
+                }
+                const key = `${filterType}:${filterId}`;
+                if (feedSpecificSettings[key]) {
+                    return {
+                        ...defaultStreamSettings,
+                        ...globalStreamSettings,
+                        ...(streamSettings[key] || {})
+                    };
+                }
+                if (filterType === 'feed') {
+                    const parent = folders.find(folder =>
+                        (folder.feeds || []).some(feed => feed.id === filterId)
+                    ) || null;
+                    const parentKey = parent ? `folder:${parent.id}` : null;
+                    if (parentKey && feedSpecificSettings[parentKey]) {
+                        return {
+                            ...defaultStreamSettings,
+                            ...globalStreamSettings,
+                            ...(streamSettings[parentKey] || {})
+                        };
+                    }
+                }
+                return { ...defaultStreamSettings, ...globalStreamSettings };
+            };
+
             const activeStreamSettings = effectiveSettingsKey
                 ? {
                     ...defaultStreamSettings,
@@ -3953,10 +3981,61 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         : article
                 ));
 
-                const isUnreadAfterMark = (article) => !article.read && !changedIdSet.has(article.id);
-                const unreadFeedIds = new Set(
-                    articles.filter(isUnreadAfterMark).map(article => article.feedId)
-                );
+                const query = searchQuery.trim().toLocaleLowerCase('nb-NO');
+                const articleVisibleInStream = (art, settings) => {
+                    if (art.read || changedIdSet.has(art.id)) return false;
+
+                    if (settings.requireImage) {
+                        const imageUrl = String(art.imageUrl || '').trim();
+                        const hasRealImage =
+                            !!imageUrl &&
+                            imageUrl !== APP_LOGO &&
+                            !imageUrl.includes('placehold.co');
+                        if (!hasRealImage) return false;
+                    }
+
+                    if (blockedWords.length > 0) {
+                        const searchableText = [
+                            art.title || '',
+                            art.summary || '',
+                            art.content || ''
+                        ].join(' ').toLocaleLowerCase('nb-NO');
+
+                        const matchesBlockedWord = blockedWords.some(word => {
+                            const cleanWord = String(word || '').trim();
+                            if (!cleanWord) return false;
+                            const escaped = cleanWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const exactWordPattern = new RegExp(
+                                `(^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`,
+                                'iu'
+                            );
+                            return exactWordPattern.test(searchableText);
+                        });
+                        if (matchesBlockedWord) return false;
+                    }
+
+                    if (query) {
+                        const searchableText = [
+                            art.title || '',
+                            art.summary || '',
+                            art.content || '',
+                            art.feedTitle || '',
+                            art.author || ''
+                        ].join(' ').toLocaleLowerCase('nb-NO');
+                        if (!searchableText.includes(query)) return false;
+                    }
+
+                    return true;
+                };
+
+                const streamHasVisibleUnread = (filterType, filterId, feedIds = null) => {
+                    const settings = getEffectiveStreamSettings(filterType, filterId);
+                    if (filterType === 'feed') {
+                        return articles.some(art => art.feedId === filterId && articleVisibleInStream(art, settings));
+                    }
+                    const idSet = new Set(feedIds || []);
+                    return articles.some(art => idSet.has(art.feedId) && articleVisibleInStream(art, settings));
+                };
 
                 const allFeedsInOrder = folders.flatMap(folder =>
                     (folder.feeds || []).map(feed => ({
@@ -3971,7 +4050,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     let nextUnreadFeed = null;
                     for (let offset = 1; offset <= allFeedsInOrder.length; offset++) {
                         const candidate = allFeedsInOrder[(currentFeedIdx + offset + allFeedsInOrder.length) % allFeedsInOrder.length];
-                        if (candidate && candidate.id !== activeFilter.id && unreadFeedIds.has(candidate.id)) {
+                        if (candidate && candidate.id !== activeFilter.id && streamHasVisibleUnread('feed', candidate.id)) {
                             nextUnreadFeed = candidate;
                             break;
                         }
@@ -4008,10 +4087,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     return;
                 }
 
-                const unitHasUnread = (unit) => {
-                    if (unit.type === 'feed') return unreadFeedIds.has(unit.id);
-                    return (unit.feedIds || []).some(fid => unreadFeedIds.has(fid));
-                };
+                const unitHasUnread = (unit) => streamHasVisibleUnread(unit.type, unit.id, unit.feedIds);
 
                 const currentFolderIndex = activeFilter.type === 'folder'
                     ? streamUnits.findIndex(unit => unit.id === activeFilter.id)
