@@ -1996,6 +1996,9 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
             const pullDistanceRef = useRef(0);
             const pullIndicatorRef = useRef(null);
             const pullContentRef = useRef(null);
+            const [showFloatingTopBar, setShowFloatingTopBar] = useState(false);
+            const lastScrollTopRef = useRef(0);
+            const upScrollAccumRef = useRef(0);
             const pullIconRef = useRef(null);
             const pullLabelRef = useRef(null);
             const pullReadyRef = useRef(false);
@@ -2975,9 +2978,30 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
             };
 
             const handleMainScroll = (event) => {
+                const root = event.currentTarget;
+                const currentTop = root.scrollTop;
+                const delta = currentTop - lastScrollTopRef.current;
+                lastScrollTopRef.current = currentTop;
+
+                if (currentTop <= 60) {
+                    upScrollAccumRef.current = 0;
+                    if (showFloatingTopBar) setShowFloatingTopBar(false);
+                } else if (delta > 6) {
+                    upScrollAccumRef.current = 0;
+                    if (showFloatingTopBar && !isSizeMenuOpen && !isSearchOpen) {
+                        setShowFloatingTopBar(false);
+                    }
+                } else if (delta < 0) {
+                    upScrollAccumRef.current += (-delta);
+                    const firstCard = root.querySelector('.akkar-compact-card, .akkar-large-card');
+                    const oneCardHeight = firstCard?.offsetHeight || Math.round(110 * (activeStreamSettings.cardScale / 100));
+                    if (upScrollAccumRef.current >= oneCardHeight && !showFloatingTopBar) {
+                        setShowFloatingTopBar(true);
+                    }
+                }
+
                 if (!activeStreamKey) return;
 
-                const root = event.currentTarget;
                 const previous = scrollPositionsRef.current?.[activeStreamKey] || {};
 
                 // Oppdater scrollTop umiddelbart i minnet. Selve localStorage-skrivingen
@@ -5587,8 +5611,18 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                     </div>
                                 )}
 
-                                <div className="relative max-w-4xl w-full mx-auto mb-2 px-2 sm:px-0">
-                                    <div className="w-full flex items-center justify-end gap-2 pl-14 lg:pl-0 min-h-[44px]">
+                                <div
+                                    className={`max-w-4xl w-full mx-auto mb-2 px-2 sm:px-0 transition-all duration-200 ${
+                                        showFloatingTopBar
+                                            ? 'sticky top-2 z-[68]'
+                                            : 'relative'
+                                    }`}
+                                >
+                                    <div className={`w-full flex items-center justify-end gap-2 pl-14 lg:pl-0 min-h-[44px] ${
+                                        showFloatingTopBar
+                                            ? 'rounded-xl bg-brand-50/90 dark:bg-darkbg/90 backdrop-blur-md px-2 py-1 shadow-md border border-brand-200/70 dark:border-darkborder/80'
+                                            : ''
+                                    }`}>
                                         <div className="shrink-0">
                                         <button
                                             ref={sizeMenuButtonRef}
