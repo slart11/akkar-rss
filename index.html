@@ -1995,6 +1995,7 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
             const [isPullDragging, setIsPullDragging] = useState(false);
             const pullDistanceRef = useRef(0);
             const pullIndicatorRef = useRef(null);
+            const pullContentRef = useRef(null);
             const pullIconRef = useRef(null);
             const pullLabelRef = useRef(null);
             const pullReadyRef = useRef(false);
@@ -5015,25 +5016,46 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 }
             });
 
-            const PULL_REFRESH_MAX = 64;
+            const PULL_REFRESH_MAX = 84;
+            const PULL_TRIGGER_THRESHOLD = 52;
+
+            const applyPullTransforms = (distance, animate = false, refreshing = false) => {
+                const clamped = Math.max(0, Math.min(PULL_REFRESH_MAX, distance));
+                const progress = Math.min(1, clamped / PULL_TRIGGER_THRESHOLD);
+                const pillY = refreshing ? 14 : (-28 + clamped * 0.56);
+                const pillScale = refreshing ? 1 : (0.86 + 0.14 * progress);
+                const pillOpacity = refreshing ? 1 : Math.min(1, clamped / 24);
+                const listY = refreshing ? 0 : Math.round(clamped * 0.52);
+                const spring = 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease';
+
+                if (pullIndicatorRef.current) {
+                    pullIndicatorRef.current.style.transition = animate ? spring : 'none';
+                    pullIndicatorRef.current.style.transform = `translate3d(0, ${pillY.toFixed(1)}px, 0) scale(${pillScale.toFixed(3)})`;
+                    pullIndicatorRef.current.style.opacity = String(pillOpacity.toFixed(2));
+                }
+
+                if (pullContentRef.current) {
+                    pullContentRef.current.style.transition = animate
+                        ? 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)'
+                        : 'none';
+                    pullContentRef.current.style.transform = `translate3d(0, ${listY}px, 0)`;
+                }
+
+                if (pullIconRef.current && !refreshing) {
+                    pullIconRef.current.style.transition = animate ? 'transform 220ms ease-out' : 'none';
+                    pullIconRef.current.style.transform = `rotate(${Math.round(progress * 300)}deg)`;
+                }
+            };
 
             const resetPullVisual = (animate = true) => {
                 pullDistanceRef.current = 0;
                 pullReadyRef.current = false;
 
-                if (pullIndicatorRef.current && !isRefreshing) {
-                    pullIndicatorRef.current.style.transition = animate
-                        ? 'height 150ms cubic-bezier(0.22, 1, 0.36, 1)'
-                        : 'none';
-                    pullIndicatorRef.current.style.height = '0px';
-                }
-
-                if (pullIconRef.current && !isRefreshing) {
-                    pullIconRef.current.style.transform = 'rotate(0deg)';
-                }
-
-                if (pullLabelRef.current && !isRefreshing) {
-                    pullLabelRef.current.textContent = 'Dra ned for å oppdatere';
+                if (!isRefreshing) {
+                    applyPullTransforms(0, animate, false);
+                    if (pullLabelRef.current) {
+                        pullLabelRef.current.textContent = 'Dra ned for å oppdatere';
+                    }
                 }
             };
 
@@ -5042,28 +5064,17 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                 pullReadyRef.current = false;
                 pullActive.current = false;
-                pullDistanceRef.current = PULL_REFRESH_MAX;
+                pullDistanceRef.current = PULL_TRIGGER_THRESHOLD;
                 setIsPullDragging(false);
-
-                if (pullIndicatorRef.current) {
-                    pullIndicatorRef.current.style.transition =
-                        'height 120ms cubic-bezier(0.22, 1, 0.36, 1)';
-                    pullIndicatorRef.current.style.height = `${PULL_REFRESH_MAX}px`;
-                }
-
-                setPullDistance(PULL_REFRESH_MAX);
+                applyPullTransforms(PULL_TRIGGER_THRESHOLD, true, true);
+                setPullDistance(PULL_TRIGGER_THRESHOLD);
 
                 try {
                     await refreshAllFeeds(false, false);
                 } finally {
                     pullDistanceRef.current = 0;
                     setPullDistance(0);
-
-                    if (pullIndicatorRef.current) {
-                        pullIndicatorRef.current.style.transition =
-                            'height 180ms cubic-bezier(0.22, 1, 0.36, 1)';
-                        pullIndicatorRef.current.style.height = '0px';
-                    }
+                    applyPullTransforms(0, true, false);
                 }
             };
 
@@ -5079,15 +5090,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     pullActive.current = true;
                     pullReadyRef.current = false;
 
-                    // Ikke gjør et React state-skifte på touchstart. Det kunne gi et lite
-                    // hakk akkurat idet en artikkelsveip begynte øverst i listen.
                     if (pullIndicatorRef.current) {
-                        pullIndicatorRef.current.style.transition = 'none';
-                        pullIndicatorRef.current.style.willChange = 'height';
+                        pullIndicatorRef.current.style.willChange = 'transform, opacity';
                     }
-
-                    if (pullIconRef.current) {
-                        pullIconRef.current.style.transition = 'none';
+                    if (pullContentRef.current) {
+                        pullContentRef.current.style.willChange = 'transform';
                     }
                 } else {
                     pullStartY.current = null;
@@ -5127,39 +5134,25 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     return;
                 }
 
-                // Samme følelse som vanlig scrolling: 1 px fingerbevegelse = 1 px åpning,
-                // helt til maksposisjonen nås.
-                const visualDistance = Math.min(PULL_REFRESH_MAX, dy);
-                pullDistanceRef.current = visualDistance;
+                // Myk gummistrikk-motstand (eksponentiell demping) med 60/120fps GPU-transform.
+                const dampedDistance = PULL_REFRESH_MAX * (1 - Math.exp(-dy / 135));
+                pullDistanceRef.current = dampedDistance;
+                applyPullTransforms(dampedDistance, false, false);
 
-                if (pullIndicatorRef.current) {
-                    pullIndicatorRef.current.style.height = `${visualDistance}px`;
-                }
-
-                const progress = Math.min(1, visualDistance / PULL_REFRESH_MAX);
-
-                if (pullIconRef.current) {
-                    pullIconRef.current.style.transform =
-                        `rotate(${Math.round(progress * 270)}deg)`;
-                }
-
-                if (pullLabelRef.current) {
-                    pullLabelRef.current.textContent =
-                        progress >= 1
-                            ? 'Oppdaterer'
-                            : 'Dra ned for å oppdatere';
-                }
-
-                // Når maks er nådd, starter oppdateringen med én gang.
-                // Brukeren trenger ikke slippe fingeren først.
-                if (visualDistance >= PULL_REFRESH_MAX && !pullReadyRef.current) {
+                const isReady = dampedDistance >= PULL_TRIGGER_THRESHOLD;
+                if (isReady && !pullReadyRef.current) {
                     pullReadyRef.current = true;
-
                     if (navigator.vibrate) {
                         try { navigator.vibrate(8); } catch {}
                     }
+                } else if (!isReady && pullReadyRef.current) {
+                    pullReadyRef.current = false;
+                }
 
-                    startPullRefresh();
+                if (pullLabelRef.current) {
+                    pullLabelRef.current.textContent = isReady
+                        ? 'Slipp for å oppdatere'
+                        : 'Dra ned for å oppdatere';
                 }
             };
 
@@ -5167,18 +5160,26 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 pullStartY.current = null;
                 pullStartX.current = null;
 
-                // Hvis oppdateringen allerede startet ved maksposisjonen,
-                // skal feltet stå nede til den er ferdig.
+                if (pullContentRef.current) {
+                    pullContentRef.current.style.willChange = 'auto';
+                }
+
                 if (refreshInFlight.current || isRefreshing) {
                     pullActive.current = false;
                     setIsPullDragging(false);
                     return;
                 }
 
+                const shouldRefresh = pullActive.current && pullReadyRef.current;
                 pullActive.current = false;
                 setIsPullDragging(false);
-                setPullDistance(0);
-                resetPullVisual(true);
+
+                if (shouldRefresh) {
+                    startPullRefresh();
+                } else {
+                    setPullDistance(0);
+                    resetPullVisual(true);
+                }
             };
 
             const sidebarRegularFolders = useMemo(
@@ -5803,35 +5804,33 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 </div>
 
                                 <div
-                                    ref={pullIndicatorRef}
-                                    className="max-w-4xl mx-auto flex items-center justify-center overflow-hidden"
-                                    style={{
-                                        height: `${isRefreshing ? PULL_REFRESH_MAX : pullDistance}px`,
-                                        willChange: isPullDragging ? 'height' : 'auto'
-                                    }}
+                                    className="sticky top-2 z-[65] h-0 overflow-visible pointer-events-none flex justify-center"
                                     aria-hidden={!isRefreshing && pullDistance === 0 && !isPullDragging}
                                 >
                                     <div
-                                        className={`flex items-center justify-center ${
-                                            isRefreshing
-                                                ? 'flex-col gap-1.5 text-accent-600 dark:text-accent-300'
-                                                : 'gap-2 text-xs font-semibold text-brand-600 dark:text-brand-200'
-                                        }`}
+                                        ref={pullIndicatorRef}
+                                        className="px-3.5 py-2 rounded-full bg-white/95 dark:bg-darksidebar/95 backdrop-blur-md border border-brand-200 dark:border-darkborder shadow-lg flex items-center justify-center gap-2 text-xs font-semibold text-brand-700 dark:text-brand-100"
+                                        style={{
+                                            transform: isRefreshing
+                                                ? 'translate3d(0, 14px, 0) scale(1)'
+                                                : 'translate3d(0, -28px, 0) scale(0.86)',
+                                            opacity: isRefreshing ? 1 : 0,
+                                            transition: 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease',
+                                        }}
                                     >
                                         <svg
                                             ref={pullIconRef}
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             stroke="currentColor"
-                                            strokeWidth="2"
+                                            strokeWidth="2.2"
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
                                             aria-hidden="true"
-                                            className={`${isRefreshing ? 'w-9 h-9 akkar-spin' : 'w-5 h-5'} shrink-0`}
+                                            className={`w-4 h-4 shrink-0 ${isRefreshing ? 'akkar-spin text-accent-500 dark:text-accent-300' : ''}`}
                                             style={!isRefreshing ? {
                                                 transform: 'rotate(0deg)',
                                                 transformOrigin: '50% 50%',
-                                                transition: isPullDragging ? 'none' : 'transform 140ms ease-out'
                                             } : undefined}
                                         >
                                             <path d="M20 6v6h-6"></path>
@@ -5840,14 +5839,12 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                             <path d="M4 12a8 8 0 0 0 13.66 5.66L20 16"></path>
                                         </svg>
 
-                                        <span
-                                            ref={pullLabelRef}
-                                            className={isRefreshing ? 'text-[10px] font-semibold tracking-wide' : ''}
-                                        >
-                                            {isRefreshing ? 'Oppdaterer' : 'Dra ned for å oppdatere'}
+                                        <span ref={pullLabelRef}>
+                                            {isRefreshing ? 'Oppdaterer …' : 'Dra ned for å oppdatere'}
                                         </span>
                                     </div>
                                 </div>
+                                <div ref={pullContentRef}>
                                 {displayedArticles.length === 0 ? (
                                     <div className="min-h-[55vh] flex items-center justify-center px-4 py-6">
                                         <div className="relative w-full max-w-sm aspect-square overflow-hidden rounded-3xl bg-darksidebar shadow-lg">
@@ -5972,6 +5969,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                                     </>
                                 )}
+                                </div>
                             </div>
 
                     </main>
