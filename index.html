@@ -4037,73 +4037,76 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     return articles.some(art => idSet.has(art.feedId) && articleVisibleInStream(art, settings));
                 };
 
-                const allFeedsInOrder = folders.flatMap(folder =>
-                    (folder.feeds || []).map(feed => ({
-                        type: 'feed',
-                        id: feed.id,
-                        name: feed.title
-                    }))
-                );
+                const regularFolders = folders.filter(folder => folder.id !== UNGROUPED_FOLDER_ID);
+                const ungroupedFolder = folders.find(folder => folder.id === UNGROUPED_FOLDER_ID);
+                const normalizeSlot = (val) => {
+                    const n = Number(val);
+                    return Number.isFinite(n)
+                        ? Math.max(0, Math.min(Math.round(n), regularFolders.length))
+                        : 0;
+                };
 
-                if (activeFilter.type === 'feed' && allFeedsInOrder.length > 0) {
-                    const currentFeedIdx = allFeedsInOrder.findIndex(f => f.id === activeFilter.id);
-                    let nextUnreadFeed = null;
-                    for (let offset = 1; offset <= allFeedsInOrder.length; offset++) {
-                        const candidate = allFeedsInOrder[(currentFeedIdx + offset + allFeedsInOrder.length) % allFeedsInOrder.length];
-                        if (candidate && candidate.id !== activeFilter.id && streamHasVisibleUnread('feed', candidate.id)) {
-                            nextUnreadFeed = candidate;
-                            break;
-                        }
+                // Bygg nøyaktig samme rekkefølge som i sidemenyen:
+                // løse feeder i hvert mellomrom + hver feedsamling (mappe) som én enhet.
+                const sidebarUnits = [];
+                for (let slot = 0; slot <= regularFolders.length; slot++) {
+                    const slotFeeds = (ungroupedFolder?.feeds || []).filter(
+                        f => normalizeSlot(f.sidebarSlot) === slot
+                    );
+                    for (const f of slotFeeds) {
+                        sidebarUnits.push({ type: 'feed', id: f.id, name: f.title });
                     }
-                    if (nextUnreadFeed) {
-                        setActiveFilter(nextUnreadFeed);
-                    } else {
-                        showToast('Alle artikler er lest');
+                    if (slot < regularFolders.length) {
+                        const fld = regularFolders[slot];
+                        sidebarUnits.push({
+                            type: 'folder',
+                            id: fld.id,
+                            name: fld.name,
+                            feedIds: (fld.feeds || []).map(f => f.id)
+                        });
                     }
-                    return;
                 }
 
-                const streamUnits = folders.flatMap(folder => {
-                    if (!(folder.feeds || []).length) return [];
-
-                    if (folder.id === UNGROUPED_FOLDER_ID) {
-                        return folder.feeds.map(feed => ({
-                            type: 'feed',
-                            id: feed.id,
-                            name: feed.title
-                        }));
-                    }
-
-                    return [{
-                        type: 'folder',
-                        id: folder.id,
-                        name: folder.name,
-                        feedIds: (folder.feeds || []).map(feed => feed.id)
-                    }];
-                });
-
-                if (streamUnits.length === 0) {
+                if (sidebarUnits.length === 0) {
                     showToast('Ingen strømmer');
                     return;
                 }
 
-                const unitHasUnread = (unit) => streamHasVisibleUnread(unit.type, unit.id, unit.feedIds);
+                let currentUnitIdx = -1;
+                if (activeFilter.type === 'feed') {
+                    const parentFolder = regularFolders.find(folder =>
+                        (folder.feeds || []).some(feed => feed.id === activeFilter.id)
+                    );
+                    if (parentFolder) {
+                        currentUnitIdx = sidebarUnits.findIndex(
+                            u => u.type === 'folder' && u.id === parentFolder.id
+                        );
+                    } else {
+                        currentUnitIdx = sidebarUnits.findIndex(
+                            u => u.type === 'feed' && u.id === activeFilter.id
+                        );
+                    }
+                } else if (activeFilter.type === 'folder') {
+                    currentUnitIdx = sidebarUnits.findIndex(
+                        u => u.type === 'folder' && u.id === activeFilter.id
+                    );
+                }
 
-                const currentFolderIndex = activeFilter.type === 'folder'
-                    ? streamUnits.findIndex(unit => unit.id === activeFilter.id)
-                    : -1;
-
-                let nextUnreadStream = null;
-                for (let offset = 1; offset <= streamUnits.length; offset++) {
-                    const candidate = streamUnits[(currentFolderIndex + offset + streamUnits.length) % streamUnits.length];
-                    if (candidate && !(candidate.type === activeFilter.type && candidate.id === activeFilter.id) && unitHasUnread(candidate)) {
-                        nextUnreadStream = { type: candidate.type, id: candidate.id, name: candidate.name };
+                let nextUnreadUnit = null;
+                for (let offset = 1; offset <= sidebarUnits.length; offset++) {
+                    const candidate = sidebarUnits[(currentUnitIdx + offset + sidebarUnits.length) % sidebarUnits.length];
+                    if (!candidate) continue;
+                    const isSameUnit =
+                        (candidate.type === activeFilter.type && candidate.id === activeFilter.id) ||
+                        (currentUnitIdx >= 0 && sidebarUnits[currentUnitIdx]?.type === candidate.type && sidebarUnits[currentUnitIdx]?.id === candidate.id);
+                    if (!isSameUnit && streamHasVisibleUnread(candidate.type, candidate.id, candidate.feedIds)) {
+                        nextUnreadUnit = { type: candidate.type, id: candidate.id, name: candidate.name };
                         break;
                     }
                 }
 
-                if (nextUnreadStream) {
-                    setActiveFilter(nextUnreadStream);
+                if (nextUnreadUnit) {
+                    setActiveFilter(nextUnreadUnit);
                 } else {
                     showToast('Alle artikler er lest');
                 }
