@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="no" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akkar Artikkelarkiv</title>
+    <style>
+        :root {
+            --bg: #f5f7fb;
+            --card: #ffffff;
+            --card-hover: #f8fafc;
+            --border: #dce3ef;
+            --text: #0f172a;
+            --muted: #64748b;
+            --accent: #b40f49;
+            --accent-hover: #980d3e;
+            --badge-bg: #e2e8f0;
+            --badge-text: #1e293b;
+            --ok-bg: #dcfce7;
+            --ok-text: #166534;
+            --warn-bg: #fef3c7;
+            --warn-text: #92400e;
+            --input-bg: #ffffff;
+        }
+        html.dark {
+            --bg: #071026;
+            --card: #0c1a3c;
+            --card-hover: #10214d;
+            --border: #1e3363;
+            --text: #f1f5f9;
+            --muted: #94a3b8;
+            --accent: #d91b5c;
+            --accent-hover: #b40f49;
+            --badge-bg: #172b5c;
+            --badge-text: #cbd5e1;
+            --ok-bg: rgba(16, 185, 129, 0.16);
+            --ok-text: #6ee7b7;
+            --warn-bg: rgba(245, 158, 11, 0.16);
+            --warn-text: #fcd34d;
+            --input-bg: #09142e;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px 16px 60px;
+        }
+        header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .title-wrap h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+        }
+        .stats {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        button, .btn {
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover, .btn:hover { background: var(--card-hover); }
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr auto auto auto;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        @media (max-width: 780px) {
+            .controls { grid-template-columns: 1fr 1fr; }
+            .controls input[type="search"] { grid-column: 1 / -1; }
+        }
+        input[type="search"], select {
+            font: inherit;
+            font-size: 14px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--input-bg);
+            color: var(--text);
+            outline: none;
+        }
+        input[type="search"]:focus, select:focus {
+            border-color: var(--accent);
+        }
+
+        .list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 16px;
+            cursor: pointer;
+            transition: background 0.12s ease, border-color 0.12s ease;
+        }
+        .card:hover {
+            background: var(--card-hover);
+            border-color: var(--accent);
+        }
+        .card-top {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .badge {
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+            background: var(--badge-bg);
+            color: var(--badge-text);
+        }
+        .badge-ok { background: var(--ok-bg); color: var(--ok-text); }
+        .badge-warn { background: var(--warn-bg); color: var(--warn-text); }
+        .card h2 {
+            margin: 0 0 6px;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .snippet {
+            margin: 0;
+            font-size: 13.5px;
+            color: var(--muted);
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        mark {
+            background: rgba(217, 27, 92, 0.25);
+            color: inherit;
+            padding: 0 2px;
+            border-radius: 3px;
+        }
+
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(2px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 100;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 820px;
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        }
+        .modal-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .modal-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .modal-meta {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        .modal-body {
+            padding: 18px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 15px;
+            line-height: 1.65;
+        }
+        .modal-footer {
+            padding: 12px 18px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .empty {
+            text-align: center;
+            padding: 48px 16px;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="title-wrap">
+                <h1>Akkar Artikkelarkiv</h1>
+                <div class="stats" id="statsText">Laster database …</div>
+            </div>
+            <div class="actions">
+                <button type="button" id="themeBtn">Lys/Mørk</button>
+                <a class="btn" id="exportCsvBtn" href="/api/articles/export?format=csv">Eksporter CSV</a>
+                <a class="btn btn-primary" id="exportJsonBtn" href="/api/articles/export?format=json">Eksporter JSON</a>
+            </div>
+        </header>
+
+        <div class="controls">
+            <input type="search" id="searchInput" placeholder="Søk i tittel, sammendrag og fulltekst …" autofocus>
+            <select id="domainFilter">
+                <option value="">Alle kilder</option>
+            </select>
+            <select id="sourceFilter">
+                <option value="">Alle typer</option>
+                <option value="full_article">Full artikkel</option>
+                <option value="rss_summary">Kun RSS-sammendrag</option>
+            </select>
+            <select id="sortSelect">
+                <option value="newest">Nyeste først</option>
+                <option value="oldest">Eldste først</option>
+                <option value="longest">Lengste først</option>
+                <option value="shortest">Korteste først</option>
+            </select>
+        </div>
+
+        <div class="list" id="resultsList"></div>
+        <div class="pagination" id="pagination"></div>
+    </div>
+
+    <div class="modal-backdrop" id="modalBackdrop">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modalTitle"></h2>
+                    <div class="modal-meta" id="modalMeta"></div>
+                </div>
+                <button type="button" id="closeModalBtn">Lukk</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer">
+                <div style="display:flex;gap:8px;">
+                    <button type="button" id="copyTextBtn">Kopier tekst</button>
+                    <a class="btn" id="openOrigBtn" target="_blank" rel="noopener noreferrer">Åpne original</a>
+                </div>
+                <span id="copyStatus" style="font-size:12px;color:var(--muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            q: '',
+            domain: '',
+            source: '',
+            sort: 'newest',
+            offset: 0,
+            limit: 50,
+            total: 0,
+            currentArticle: null,
+        };
+
+        const searchInput = document.getElementById('searchInput');
+        const domainFilter = document.getElementById('domainFilter');
+        const sourceFilter = document.getElementById('sourceFilter');
+        const sortSelect = document.getElementById('sortSelect');
+        const resultsList = document.getElementById('resultsList');
+        const statsText = document.getElementById('statsText');
+        const pagination = document.getElementById('pagination');
+        const modalBackdrop = document.getElementById('modalBackdrop');
+
+        document.getElementById('themeBtn').addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+        });
+        document.getElementById('closeModalBtn').addEventListener('click', () => {
+            modalBackdrop.classList.remove('open');
+        });
+        modalBackdrop.addEventListener('click', () => {
+            modalBackdrop.classList.remove('open');
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') modalBackdrop.classList.remove('open');
+        });
+
+        document.getElementById('copyTextBtn').addEventListener('click', async () => {
+            if (!state.currentArticle) return;
+            try {
+                await navigator.clipboard.writeText(state.currentArticle.full_text || '');
+                document.getElementById('copyStatus').textContent = 'Kopiert til utklippstavlen';
+                setTimeout(() => { document.getElementById('copyStatus').textContent = ''; }, 2500);
+            } catch {
+                document.getElementById('copyStatus').textContent = 'Kunne ikke kopiere';
+            }
+        });
+
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function highlight(text, query) {
+            const safe = escapeHtml(text);
+            const q = (query || '').trim();
+            if (!q) return safe;
+            const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return safe.replace(new RegExp(`(${escapedQ})`, 'gi'), '<mark>$1</mark>');
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return iso;
+            return d.toLocaleString('nb-NO', { dateStyle: 'medium', timeStyle: 'short' });
+        }
+
+        function updateExportLinks() {
+            const params = new URLSearchParams();
+            if (state.q) params.set('q', state.q);
+            if (state.domain) params.set('domain', state.domain);
+            if (state.source) params.set('source', state.source);
+            const qs = params.toString();
+            document.getElementById('exportCsvBtn').href = `/api/articles/export?format=csv${qs ? '&' + qs : ''}`;
+            document.getElementById('exportJsonBtn').href = `/api/articles/export?format=json${qs ? '&' + qs : ''}`;
+        }
+
+        async function loadArticles() {
+            updateExportLinks();
+            const params = new URLSearchParams({
+                q: state.q,
+                domain: state.domain,
+                source: state.source,
+                sort: state.sort,
+                limit: String(state.limit),
+                offset: String(state.offset),
+            });
+            const res = await fetch(`/api/articles/search?${params.toString()}`);
+            if (!res.ok) {
+                resultsList.innerHTML = '<div class="empty">Kunne ikke laste artikler fra databasen.</div>';
+                return;
+            }
+            const data = await res.json();
+            state.total = data.total || 0;
+
+            statsText.textContent = `${data.total} treff (totalt ${data.db_total} artikler lagret · ${(data.total_words || 0).toLocaleString('nb-NO')} ord)`;
+
+            const prevDomain = domainFilter.value;
+            domainFilter.innerHTML = '<option value="">Alle kilder</option>' +
+                (data.domains || []).map(d => `<option value="${escapeHtml(d.domain)}">${escapeHtml(d.domain)} (${d.count})</option>`).join('');
+            domainFilter.value = prevDomain;
+
+            if (!data.items || data.items.length === 0) {
+                resultsList.innerHTML = '<div class="empty">Ingen artikler matchet søket.</div>';
+                pagination.innerHTML = '';
+                return;
+            }
+
+            resultsList.innerHTML = '';
+            for (const item of data.items) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                const isFull = item.source === 'full_article';
+                card.innerHTML = `
+                    <div class="card-top">
+                        <span class="badge">${escapeHtml(item.domain || 'ukjent')}</span>
+                        <span class="badge ${isFull ? 'badge-ok' : 'badge-warn'}">${isFull ? 'Full artikkel' : 'RSS-sammendrag'}</span>
+                        <span>${(item.word_count || 0).toLocaleString('nb-NO')} ord</span>
+                        <span>·</span>
+                        <span>${escapeHtml(formatDate(item.updated_at || item.created_at))}</span>
+                    </div>
+                    <h2>${highlight(item.title || item.url, state.q)}</h2>
+                    <p class="snippet">${highlight(item.snippet || '', state.q)}</p>
+                `;
+                card.addEventListener('click', () => openArticle(item.url));
+                resultsList.appendChild(card);
+            }
+
+            const totalPages = Math.max(1, Math.ceil(state.total / state.limit));
+            const currentPage = Math.floor(state.offset / state.limit) + 1;
+            pagination.innerHTML = `
+                <button type="button" ${currentPage <= 1 ? 'disabled' : ''} id="prevPageBtn">Forrige</button>
+                <span>Side ${currentPage} av ${totalPages}</span>
+                <button type="button" ${currentPage >= totalPages ? 'disabled' : ''} id="nextPageBtn">Neste</button>
+            `;
+            document.getElementById('prevPageBtn').onclick = () => {
+                if (state.offset >= state.limit) {
+                    state.offset -= state.limit;
+                    loadArticles();
+                    window.scrollTo(0, 0);
+                }
+            };
+            document.getElementById('nextPageBtn').onclick = () => {
+                if (state.offset + state.limit < state.total) {
+                    state.offset += state.limit;
+                    loadArticles();
+                    window.scrollTo(0, 0);
+                }
+            };
+        }
+
+        async function openArticle(url) {
+            const res = await fetch(`/api/articles/item?url=${encodeURIComponent(url)}`);
+            if (!res.ok) return;
+            const art = await res.json();
+            state.currentArticle = art;
+            document.getElementById('modalTitle').textContent = art.title || art.url;
+            document.getElementById('modalMeta').textContent =
+                `${art.domain || ''} · ${(art.word_count || 0).toLocaleString('nb-NO')} ord · ${(art.char_count || 0).toLocaleString('nb-NO')} tegn · ${formatDate(art.updated_at || art.created_at)}`;
+            document.getElementById('modalBody').textContent = art.full_text || art.summary || '';
+            document.getElementById('openOrigBtn').href = art.url;
+            document.getElementById('copyStatus').textContent = '';
+            modalBackdrop.classList.add('open');
+        }
+
+        let searchTimer = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                state.q = searchInput.value.trim();
+                state.offset = 0;
+                loadArticles();
+            }, 220);
+        });
+        domainFilter.addEventListener('change', () => {
+            state.domain = domainFilter.value;
+            state.offset = 0;
+            loadArticles();
+        });
+        sourceFilter.addEventListener('change', () => {
+            state.source = sourceFilter.value;
+            state.offset = 0;
+            loadArticles();
+        });
+        sortSelect.addEventListener('change', () => {
+            state.sort = sortSelect.value;
+            state.offset = 0;
+            loadArticles();
+        });
+
+        loadArticles();
+    </script>
+</body>
+</html>
