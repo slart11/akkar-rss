@@ -7576,15 +7576,6 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                             <div
                                 className="flex items-center space-x-2 flex-1 min-w-0 cursor-pointer"
                                 onClick={() => {
-                                    const isAlreadySelected =
-                                        activeFilter.type === 'folder' &&
-                                        activeFilter.id === folder.id;
-
-                                    if (isAlreadySelected) {
-                                        setIsOpen(prev => !prev);
-                                        return;
-                                    }
-
                                     setActiveFilter({ type: 'folder', id: folder.id, name: folder.name });
                                     onNavigate?.();
                                 }}
