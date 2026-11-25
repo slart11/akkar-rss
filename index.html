@@ -4332,6 +4332,14 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     window.history.pushState({ akkarMobileGuard: true }, '');
                 }
 
+                const ensureUserActivatedGuard = () => {
+                    if (window.location.hash.startsWith('#saved=')) return;
+                    if (window.innerWidth >= 1024) return;
+                    if (!window.history.state?.akkarUserGuard) {
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
+                    }
+                };
+
                 const handleMobileBack = () => {
                     if (window.location.hash.startsWith('#saved=')) return;
                     if (window.innerWidth >= 1024) return;
@@ -4339,37 +4347,43 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     const st = mobileBackStateRef.current;
                     if (st.ttsSettingsOpen) {
                         setTtsSettingsOpen(false);
-                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
                         return;
                     }
                     if (st.isAddFeedOpen) {
                         setIsAddFeedOpen(false);
-                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
                         return;
                     }
                     if (st.isShortcutsOpen) {
                         setIsShortcutsOpen(false);
-                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
                         return;
                     }
                     if (st.showReadLaterOnly) {
                         setShowReadLaterOnly(false);
-                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
                         return;
                     }
                     if (st.ttsExpanded) {
                         setTtsState(prev => ({ ...prev, expanded: false }));
-                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
                         return;
                     }
                     if (!st.isMenuOpen) {
                         setIsMenuOpen(true);
-                        window.history.pushState({ akkarMobileGuard: true }, '');
+                        window.history.pushState({ akkarMobileGuard: true, akkarUserGuard: true }, '');
                     }
                 };
 
+                window.addEventListener('pointerdown', ensureUserActivatedGuard, { capture: true, passive: true });
+                window.addEventListener('touchstart', ensureUserActivatedGuard, { capture: true, passive: true });
                 window.addEventListener('popstate', handleMobileBack);
-                return () => window.removeEventListener('popstate', handleMobileBack);
+                return () => {
+                    window.removeEventListener('pointerdown', ensureUserActivatedGuard, { capture: true });
+                    window.removeEventListener('touchstart', ensureUserActivatedGuard, { capture: true });
+                    window.removeEventListener('popstate', handleMobileBack);
+                };
             }, []);
 
             const pinchZoomRef = useRef(null);
