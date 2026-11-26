@@ -880,7 +880,7 @@
                 id: 'f-ino-reddit',
                 name: 'Reddit',
                 feeds: [
-                    { id: 'feed-ino-buyfromeu', title: 'BuyFromEU', url: 'https://www.reddit.com/r/BuyFromEU/.rss', icon: 'rss' }
+                    { id: 'feed-ino-buyfromeu', title: 'BuyFromEU', url: 'https://old.reddit.com/r/BuyFromEU/.rss', icon: 'rss' }
                 ]
             },
             {
@@ -980,6 +980,14 @@
                 let text = (root.textContent || '')
                     .replace(/\s+/g, ' ')
                     .trim();
+
+                // Dekod dobbelt-kodede HTML-entiteter (f.eks. &laquo; / &raquo; fra RSS).
+                if (/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/i.test(text)) {
+                    const decodedDoc = new DOMParser().parseFromString(`<div id="akkar-dec">${text}</div>`, 'text/html');
+                    text = (decodedDoc.getElementById('akkar-dec')?.textContent || text)
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                }
 
                 text = text
                     .replace(/\s*(?:Foto|Photo|Bilde|Bildetekst|Image|Illustrasjon|Kreditering|Credit)\s*:\s*.*$/i, '')
@@ -5771,15 +5779,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 <div
                                     className={`max-w-4xl w-full mx-auto mb-2 px-2 sm:px-0 transition-all duration-200 ${
                                         showFloatingTopBar
-                                            ? 'sticky top-2 z-[68]'
+                                            ? 'sticky top-0 z-[68] -mt-4 pt-2 pb-1.5 bg-brand-50/95 dark:bg-darkbg/95 backdrop-blur-md border-b border-brand-200/70 dark:border-darkborder/80'
                                             : 'relative'
                                     }`}
                                 >
-                                    <div className={`w-full flex items-center justify-end gap-2 pl-14 lg:pl-0 min-h-[44px] ${
-                                        showFloatingTopBar
-                                            ? 'rounded-xl bg-brand-50/90 dark:bg-darkbg/90 backdrop-blur-md px-2 py-1 shadow-md border border-brand-200/70 dark:border-darkborder/80'
-                                            : ''
-                                    }`}>
+                                    <div className="w-full flex items-center justify-end gap-2 pl-14 lg:pl-0 min-h-[44px]">
                                         <div className="shrink-0">
                                         <button
                                             ref={sizeMenuButtonRef}
@@ -6059,7 +6063,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-600/60 dark:text-brand-200/60 pointer-events-none"
                                         ></i>
                                         <input
-                                            type="search"
+                                            type="text"
+                                            inputMode="search"
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                             placeholder={`Søk i ${activeFilter.name || 'gjeldende strøm'}`}
