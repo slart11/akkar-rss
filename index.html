@@ -1795,6 +1795,55 @@
                 return [];
             });
             const [isStorageHydrated, setIsStorageHydrated] = useState(false);
+            const sessionUnreadOverridesRef = useRef(new Set());
+            const readUrlsRef = useRef((() => {
+                try {
+                    const raw = localStorage.getItem('akkar_read_urls_v1');
+                    const parsed = raw ? JSON.parse(raw) : null;
+                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+                } catch {
+                    return {};
+                }
+            })());
+
+            const saveReadUrlsToStorage = () => {
+                try {
+                    const map = readUrlsRef.current || {};
+                    const entries = Object.entries(map);
+                    if (entries.length > 2500) {
+                        entries.sort((a, b) => (b[1] || 0) - (a[1] || 0));
+                        readUrlsRef.current = Object.fromEntries(entries.slice(0, 2500));
+                    }
+                    localStorage.setItem('akkar_read_urls_v1', JSON.stringify(readUrlsRef.current));
+                } catch {}
+            };
+
+            const recordReadUrls = (urls, isRead) => {
+                if (!urls || urls.length === 0) return;
+                const map = { ...(readUrlsRef.current || {}) };
+                const now = Date.now();
+                let changed = false;
+                for (const u of urls) {
+                    if (!u) continue;
+                    if (isRead) {
+                        sessionUnreadOverridesRef.current.delete(u);
+                        if (!map[u]) {
+                            map[u] = now;
+                            changed = true;
+                        }
+                    } else {
+                        sessionUnreadOverridesRef.current.add(u);
+                        if (map[u]) {
+                            delete map[u];
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed) {
+                    readUrlsRef.current = map;
+                    saveReadUrlsToStorage();
+                }
+            };
 
             // UI State
             const firstFolder = folders.find(folder => folder.id !== UNGROUPED_FOLDER_ID) || null;
@@ -2348,59 +2397,88 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
             }, [activeFilter.type, activeFilter.id, savedPanelHideRead]);
 
 
+            const persistArticlesNow = async (list) => {
+                const compactArticles = (list || []).map(article => ({
+                    ...article,
+                    content: article.summary || article.title || ''
+                }));
+
+                // Sikre at alle leste artikler også finnes i den synkrone URL-cachen.
+                const readUrls = compactArticles.filter(a => a.read && a.url).map(a => a.url);
+                if (readUrls.length > 0) {
+                    recordReadUrls(readUrls, true);
+                }
+
+                try {
+                    const startupArticles = [...compactArticles]
+                        .sort((a, b) =>
+                            (new Date(b.pubDate).getTime() || 0) -
+                            (new Date(a.pubDate).getTime() || 0)
+                        )
+                        .slice(0, 60);
+
+                    localStorage.setItem(
+                        'akkar_startup_articles',
+                        JSON.stringify(startupArticles)
+                    );
+                } catch {}
+
+                try {
+                    await writeAkkarDbValue('articles', compactArticles);
+                } catch (e) {
+                    console.warn('Kunne ikke lagre artikler i IndexedDB:', e);
+
+                    // Fallback: behold en mindre kopi i localStorage dersom
+                    // IndexedDB skulle være utilgjengelig.
+                    try {
+                        const groups = {};
+                        compactArticles.forEach(article => {
+                            if (!groups[article.feedId]) groups[article.feedId] = [];
+                            groups[article.feedId].push(article);
+                        });
+
+                        const reduced = Object.values(groups).flatMap(group =>
+                            group
+                                .sort((a, b) =>
+                                    (new Date(b.pubDate).getTime() || 0) -
+                                    (new Date(a.pubDate).getTime() || 0)
+                                )
+                                .slice(0, 25)
+                        );
+
+                        localStorage.setItem('akkar_articles', JSON.stringify(reduced));
+                    } catch {}
+                }
+            };
+
             useEffect(() => {
                 if (!isStorageHydrated) return;
 
-                const timer = setTimeout(async () => {
-                    const compactArticles = articles.map(article => ({
-                        ...article,
-                        content: article.summary || article.title || ''
-                    }));
-
-                    try {
-                        await writeAkkarDbValue('articles', compactArticles);
-
-                        // Bare en liten, fersk kopi i localStorage for øyeblikkelig
-                        // førstegjengivelse ved neste oppstart.
-                        const startupArticles = [...compactArticles]
-                            .sort((a, b) =>
-                                (new Date(b.pubDate).getTime() || 0) -
-                                (new Date(a.pubDate).getTime() || 0)
-                            )
-                            .slice(0, 60);
-
-                        localStorage.setItem(
-                            'akkar_startup_articles',
-                            JSON.stringify(startupArticles)
-                        );
-                    } catch (e) {
-                        console.warn('Kunne ikke lagre artikler i IndexedDB:', e);
-
-                        // Fallback: behold en mindre kopi i localStorage dersom
-                        // IndexedDB skulle være utilgjengelig.
-                        try {
-                            const groups = {};
-                            compactArticles.forEach(article => {
-                                if (!groups[article.feedId]) groups[article.feedId] = [];
-                                groups[article.feedId].push(article);
-                            });
-
-                            const reduced = Object.values(groups).flatMap(group =>
-                                group
-                                    .sort((a, b) =>
-                                        (new Date(b.pubDate).getTime() || 0) -
-                                        (new Date(a.pubDate).getTime() || 0)
-                                    )
-                                    .slice(0, 25)
-                            );
-
-                            localStorage.setItem('akkar_articles', JSON.stringify(reduced));
-                        } catch {}
-                    }
+                const timer = setTimeout(() => {
+                    persistArticlesNow(articles);
                 }, 260);
 
                 return () => clearTimeout(timer);
             }, [articles, isStorageHydrated]);
+
+            useEffect(() => {
+                const flushOnHide = () => {
+                    if (document.visibilityState === 'hidden' && isStorageHydrated) {
+                        persistArticlesNow(articlesRef.current);
+                    }
+                };
+                const flushOnPageHide = () => {
+                    if (isStorageHydrated) {
+                        persistArticlesNow(articlesRef.current);
+                    }
+                };
+                document.addEventListener('visibilitychange', flushOnHide);
+                window.addEventListener('pagehide', flushOnPageHide);
+                return () => {
+                    document.removeEventListener('visibilitychange', flushOnHide);
+                    window.removeEventListener('pagehide', flushOnPageHide);
+                };
+            }, [isStorageHydrated]);
 
             useEffect(() => {
                 let cancelled = false;
@@ -2420,9 +2498,24 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                                 summary: cleanRssSummary(article.summary || article.content || '')
                             }));
 
-                            setArticles(current =>
-                                mergeAndPruneArticles(current, hydratedArticles)
+                            recordReadUrls(
+                                hydratedArticles.filter(a => a.read && a.url).map(a => a.url),
+                                true
                             );
+
+                            setArticles(current => {
+                                const hydratedMap = new Map(hydratedArticles.map(a => [a.url, a]));
+                                const preservedCurrent = current.map(a => {
+                                    const h = hydratedMap.get(a.url);
+                                    if (!h || sessionUnreadOverridesRef.current.has(a.url)) return a;
+                                    return {
+                                        ...a,
+                                        read: Boolean(a.read || h.read),
+                                        starred: Boolean(a.starred || h.starred)
+                                    };
+                                });
+                                return mergeAndPruneArticles(preservedCurrent, hydratedArticles);
+                            });
                         } else {
                             const legacyArticles = articlesRef.current.map(article => ({
                                 ...article,
@@ -2611,15 +2704,22 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                     if (!article?.url) return;
 
                     const existing = existingMap.get(article.url);
+                    const wasReadInRegistry =
+                        Boolean(readUrlsRef.current?.[article.url]) &&
+                        !sessionUnreadOverridesRef.current.has(article.url);
+
                     combinedMap.set(
                         article.url,
                         existing
                             ? {
                                 ...article,
-                                read: existing.read,
+                                read: Boolean(existing.read || (!sessionUnreadOverridesRef.current.has(article.url) && wasReadInRegistry)),
                                 starred: existing.starred
                             }
-                            : article
+                            : {
+                                ...article,
+                                read: Boolean(article.read || wasReadInRegistry)
+                            }
                     );
                 });
 
@@ -3106,6 +3206,11 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
             };
 
             const markAllSavedRead = () => {
+                const savedUnreadUrls = articlesRef.current
+                    .filter(article => article.starred && !article.read && article.url)
+                    .map(article => article.url);
+                recordReadUrls(savedUnreadUrls, true);
+
                 setArticles(prev => prev.map(article =>
                     article.starred && !article.read
                         ? { ...article, read: true }
@@ -3978,9 +4083,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 // Marker hele den aktive strømmen som lest – også artikler som akkurat nå
                 // er skjult av ord-filter, søk, Les senere-filter eller andre visningsfiltre.
                 // Bare artikler som faktisk endres fra ulest -> lest lagres for Angre.
-                const changedIds = getCurrentStreamArticles()
-                    .filter(article => !article.read)
-                    .map(article => article.id);
+                const changedArticles = getCurrentStreamArticles()
+                    .filter(article => !article.read);
+                const changedIds = changedArticles.map(article => article.id);
+
+                recordReadUrls(changedArticles.map(a => a.url).filter(Boolean), true);
 
                 const changedIdSet = new Set(changedIds);
                 const previousFilter = { ...activeFilter };
@@ -4141,6 +4248,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                 const changedIdSet = new Set(undoReadSnapshot.changedIds || []);
 
+                const restoredUrls = articlesRef.current
+                    .filter(article => changedIdSet.has(article.id) && article.url)
+                    .map(article => article.url);
+                recordReadUrls(restoredUrls, false);
+
                 // Gjenopprett bare artiklene som denne handlingen gjorde til lest.
                 setArticles(prev => prev.map(article =>
                     changedIdSet.has(article.id)
@@ -4166,6 +4278,12 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     art.id,
                     ...((art.relatedArticles || []).map(item => item.id))
                 ]);
+                const relatedUrls = [
+                    art.url,
+                    ...((art.relatedArticles || []).map(item => item.url))
+                ].filter(Boolean);
+
+                recordReadUrls(relatedUrls, read);
 
                 setArticles(prev => prev.map(a =>
                     relatedIds.has(a.id) ? { ...a, read } : a
