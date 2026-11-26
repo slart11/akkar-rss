@@ -1392,6 +1392,45 @@
                 return sortArticles(directArticles);
             }
 
+            // Prøv egen RSS-proxy på Mac Mini først (unngår CORS-blokkering og 429/403 fra offentlige proxyer).
+            try {
+                const savedTts = JSON.parse(localStorage.getItem('akkar_tts_settings') || '{}');
+                const isLocal = typeof window !== 'undefined' && (
+                    window.location.hostname === 'localhost' ||
+                    window.location.hostname === '127.0.0.1' ||
+                    window.location.hostname.startsWith('192.168.')
+                );
+                const proxyBase = String(
+                    savedTts.serverUrl || (isLocal ? 'http://192.168.10.199:7860' : 'https://tts.autobot.no')
+                ).replace(/\/+$/, '');
+                if (proxyBase) {
+                    const headers = { 'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*' };
+                    if (savedTts.password) {
+                        const tok = btoa(unescape(encodeURIComponent(`${savedTts.username || 'peter'}:${savedTts.password}`)));
+                        headers['Authorization'] = `Basic ${tok}`;
+                    }
+                    const ctrl = new AbortController();
+                    const tId = setTimeout(() => ctrl.abort(), 5000);
+                    try {
+                        const res = await fetch(`${proxyBase}/api/rss?url=${encodeURIComponent(freshFeedUrl)}`, {
+                            signal: ctrl.signal,
+                            cache: 'no-store',
+                            headers,
+                        });
+                        if (res.ok) {
+                            const text = await res.text();
+                            const parsed = text && text.trim().length >= 50 ? parseRssXml(text, feedId, feedTitle) : [];
+                            if (Array.isArray(parsed) && parsed.length > 0) {
+                                onStatus?.({ ok: true, feedId });
+                                return sortArticles(parsed);
+                            }
+                        }
+                    } finally {
+                        clearTimeout(tId);
+                    }
+                }
+            } catch {}
+
             // Hvis direkte henting ikke virker, prøves reservekildene samtidig.
             // Første gyldige svar vinner. Resten trenger ikke forsinke oppdateringen.
             const controllers = [];
