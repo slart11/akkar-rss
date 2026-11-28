@@ -4291,7 +4291,23 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 }
 
                 if (nextUnreadUnit) {
+                    const nextStreamKey = `${nextUnreadUnit.type}:${nextUnreadUnit.id}`;
+                    scrollPositionsRef.current = {
+                        ...(scrollPositionsRef.current || {}),
+                        [nextStreamKey]: { scrollTop: 0 }
+                    };
+                    setShowFloatingTopBar(false);
+                    upScrollAccumRef.current = 0;
+                    lastScrollTopRef.current = 0;
                     setActiveFilter(nextUnreadUnit);
+                    if (mainScrollRef.current) {
+                        mainScrollRef.current.scrollTop = 0;
+                    }
+                    requestAnimationFrame(() => {
+                        if (mainScrollRef.current) {
+                            mainScrollRef.current.scrollTop = 0;
+                        }
+                    });
                 } else {
                     showToast('Alle artikler er lest');
                 }
