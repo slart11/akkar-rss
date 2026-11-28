@@ -8503,6 +8503,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     onOpen={onOpen}
                     onToggleRead={onToggleRead}
                     onToggleStar={onToggleStar}
+                    onSpeak={onSpeak}
                     shareArticle={shareArticle}
                     roundedClass={savedPanelMode ? 'rounded-xl' : 'rounded-none sm:rounded-xl'}
                 >
@@ -8702,6 +8703,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             onOpen,
             onToggleRead,
             onToggleStar,
+            onSpeak,
             shareArticle,
             roundedClass = 'rounded-xl',
             children
@@ -8712,12 +8714,15 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             const swipeLeftActionRef = useRef(null);
             const swipeRightActionRef = useRef(null);
             const readActionRef = useRef(null);
-            const saveActionButtonRef = useRef(null);
+            const speakActionButtonRef = useRef(null);
             const shareActionButtonRef = useRef(null);
+            const saveActionButtonRef = useRef(null);
             const activeSwipeActionRef = useRef(null);
             const swipeFrameRef = useRef(null);
             const pendingSwipeXRef = useRef(0);
             const touchStart = useRef(null);
+            const gearAnchorYRef = useRef(null);
+            const gearVerticalRef = useRef(0);
             const swiping = useRef(false);
             const swipeDirectionLocked = useRef(false);
             const suppressClick = useRef(false);
@@ -8725,8 +8730,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
             const ACTION_RED = '#A82151';
             const ACTION_YELLOW = '#A9843C';
             const READ_TRIGGER = 56;
-            const SHARE_TRIGGER = -56;
-            const SAVE_TRIGGER = -132;
+            const GEAR_ENGAGE_X = -52;
+            const GEAR_SHIFT_Y = 26;
 
             useEffect(() => {
                 return () => {
@@ -8740,17 +8745,22 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 if (activeSwipeActionRef.current === action) return;
                 activeSwipeActionRef.current = action;
 
+                if (action && navigator.vibrate) {
+                    try { navigator.vibrate(8); } catch {}
+                }
+
                 const applyActionState = (element, active) => {
                     if (!element) return;
                     element.style.outline = 'none';
                     element.style.boxShadow = 'none';
                     element.style.filter = 'none';
                     element.style.backgroundColor = active ? ACTION_YELLOW : ACTION_RED;
-                    element.style.transform = 'none';
+                    element.style.transform = active ? 'scale(1.03)' : 'none';
                     element.style.transformOrigin = 'center';
                 };
 
                 applyActionState(readActionRef.current, action === 'read');
+                applyActionState(speakActionButtonRef.current, action === 'speak');
                 applyActionState(shareActionButtonRef.current, action === 'share');
                 applyActionState(saveActionButtonRef.current, action === 'save');
             };
@@ -8773,17 +8783,22 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                 if (clamped >= READ_TRIGGER) {
                     setSwipeActionActive('read');
-                } else if (clamped <= SAVE_TRIGGER) {
-                    setSwipeActionActive('save');
-                } else if (clamped <= SHARE_TRIGGER) {
-                    setSwipeActionActive('share');
+                } else if (clamped <= GEAR_ENGAGE_X) {
+                    const dyGear = gearVerticalRef.current;
+                    if (dyGear <= -GEAR_SHIFT_Y && onSpeak) {
+                        setSwipeActionActive('speak');
+                    } else if (dyGear >= GEAR_SHIFT_Y) {
+                        setSwipeActionActive('save');
+                    } else {
+                        setSwipeActionActive('share');
+                    }
                 } else {
                     setSwipeActionActive(null);
                 }
             };
 
             const applySwipePosition = (x, animate = false) => {
-                const clamped = Math.max(-192, Math.min(110, x));
+                const clamped = Math.max(-136, Math.min(110, x));
                 swipeXRef.current = clamped;
                 pendingSwipeXRef.current = clamped;
 
@@ -8810,6 +8825,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     swipeFrameRef.current = null;
                 }
 
+                gearAnchorYRef.current = null;
+                gearVerticalRef.current = 0;
                 pendingSwipeXRef.current = x;
                 applySwipePosition(x, true);
                 setSwipeX(x);
@@ -8824,6 +8841,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     baseX: swipeXRef.current
                 };
 
+                gearAnchorYRef.current = null;
+                gearVerticalRef.current = 0;
                 swiping.current = false;
                 swipeDirectionLocked.current = false;
                 suppressClick.current = false;
@@ -8833,14 +8852,17 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                 }
             };
 
-            const handleTouchMove = (e) => {
+            const handleTouchMoveRef = useRef(null);
+            handleTouchMoveRef.current = (e) => {
                 if (!touchStart.current || e.touches?.length !== 1) return;
 
-                const dx = e.touches[0].clientX - touchStart.current.x;
-                const dy = e.touches[0].clientY - touchStart.current.y;
+                const touchX = e.touches[0].clientX;
+                const touchY = e.touches[0].clientY;
+                const dx = touchX - touchStart.current.x;
+                const dy = touchY - touchStart.current.y;
 
                 if (!swipeDirectionLocked.current) {
-                    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+                    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
 
                     if (Math.abs(dy) > Math.abs(dx)) {
                         touchStart.current = null;
@@ -8852,8 +8874,33 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     suppressClick.current = true;
                 }
 
-                applySwipePosition(touchStart.current.baseX + dx, false);
+                // Når horisontal gir-sveip er aktiv, hindrer vi sideskrolling slik at
+                // fingerbevegelse opp/ned skifter gir (Lyd / Dele / Les senere) mykt.
+                if (e.cancelable) {
+                    e.preventDefault();
+                }
+
+                const nextX = touchStart.current.baseX + dx;
+                if (nextX <= GEAR_ENGAGE_X) {
+                    if (gearAnchorYRef.current === null) {
+                        gearAnchorYRef.current = touchY;
+                    }
+                    gearVerticalRef.current = touchY - gearAnchorYRef.current;
+                } else {
+                    gearAnchorYRef.current = null;
+                    gearVerticalRef.current = 0;
+                }
+
+                applySwipePosition(nextX, false);
             };
+
+            useEffect(() => {
+                const el = swipeCardRef.current;
+                if (!el) return;
+                const onMove = (e) => handleTouchMoveRef.current?.(e);
+                el.addEventListener('touchmove', onMove, { passive: false });
+                return () => el.removeEventListener('touchmove', onMove);
+            }, []);
 
             const handleTouchEnd = () => {
                 if (!swiping.current) {
@@ -8863,6 +8910,8 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                 if (activeSwipeActionRef.current === 'read') {
                     onToggleRead?.();
+                } else if (activeSwipeActionRef.current === 'speak') {
+                    onSpeak?.();
                 } else if (activeSwipeActionRef.current === 'save') {
                     onToggleStar?.();
                 } else if (activeSwipeActionRef.current === 'share') {
@@ -8919,27 +8968,28 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
 
                     <div
                         ref={swipeRightActionRef}
-                        className="absolute inset-y-0 right-0 w-48 flex items-stretch"
+                        className="absolute inset-y-0 right-0 w-32 flex flex-col items-stretch divide-y divide-white/15"
                         style={{ opacity: swipeX < 0 ? 1 : 0 }}
                     >
-                        <button
-                            ref={saveActionButtonRef}
-                            type="button"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleStar?.(e);
-                                settleSwipePosition(0);
-                                setSwipeActionActive(null);
-                            }}
-                            className="w-24 text-white flex flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors duration-120 outline-none focus:outline-none"
-                            style={{ backgroundColor: ACTION_RED, WebkitTapHighlightColor: 'transparent' }}
-                            aria-label={article.starred ? 'Fjern fra Les senere' : 'Lagre i Les senere'}
-                        >
-                            <ArticleActionIcon name={article.starred ? 'bookmark-check' : 'bookmark-plus'} className="w-5 h-5" />
-                            <span className="leading-tight text-center px-1">
-                                {article.starred ? 'Lagret' : 'Les senere'}
-                            </span>
-                        </button>
+                        {onSpeak && (
+                            <button
+                                ref={speakActionButtonRef}
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSpeak?.(e);
+                                    settleSwipePosition(0);
+                                    setSwipeActionActive(null);
+                                }}
+                                className="flex-1 text-white flex items-center justify-center gap-1.5 text-[11px] font-semibold transition-all duration-100 outline-none focus:outline-none px-2"
+                                style={{ backgroundColor: ACTION_RED, WebkitTapHighlightColor: 'transparent' }}
+                                aria-label="Spill av lyd"
+                            >
+                                <span className="text-[10px] opacity-75">↑</span>
+                                <ArticleActionIcon name="play" className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">Lyd</span>
+                            </button>
+                        )}
 
                         <button
                             ref={shareActionButtonRef}
@@ -8950,12 +9000,33 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                                 settleSwipePosition(0);
                                 setSwipeActionActive(null);
                             }}
-                            className="w-24 text-white flex flex-col items-center justify-center gap-1 text-xs font-semibold transition-colors duration-120 outline-none focus:outline-none"
+                            className="flex-1 text-white flex items-center justify-center gap-1.5 text-[11px] font-semibold transition-all duration-100 outline-none focus:outline-none px-2"
                             style={{ backgroundColor: ACTION_RED, WebkitTapHighlightColor: 'transparent' }}
                             aria-label="Del artikkel"
                         >
-                            <ArticleActionIcon name="share-2" className="w-5 h-5" />
-                            <span>Dele</span>
+                            <span className="text-[10px] opacity-75">←</span>
+                            <ArticleActionIcon name="share-2" className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">Dele</span>
+                        </button>
+
+                        <button
+                            ref={saveActionButtonRef}
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleStar?.(e);
+                                settleSwipePosition(0);
+                                setSwipeActionActive(null);
+                            }}
+                            className="flex-1 text-white flex items-center justify-center gap-1.5 text-[11px] font-semibold transition-all duration-100 outline-none focus:outline-none px-2"
+                            style={{ backgroundColor: ACTION_RED, WebkitTapHighlightColor: 'transparent' }}
+                            aria-label={article.starred ? 'Fjern fra Les senere' : 'Lagre i Les senere'}
+                        >
+                            <span className="text-[10px] opacity-75">↓</span>
+                            <ArticleActionIcon name={article.starred ? 'bookmark-check' : 'bookmark-plus'} className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">
+                                {article.starred ? 'Lagret' : 'Les senere'}
+                            </span>
                         </button>
                     </div>
 
@@ -8963,7 +9034,6 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         ref={swipeCardRef}
                         onClick={handleClick}
                         onTouchStart={handleTouchStart}
-                        onTouchMove={handleTouchMove}
                         onTouchEnd={handleTouchEnd}
                         onTouchCancel={handleTouchCancel}
                         className="relative z-10 w-full touch-pan-y"
@@ -9018,6 +9088,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         onOpen={onOpen}
                         onToggleRead={onToggleRead}
                         onToggleStar={onToggleStar}
+                        onSpeak={onSpeak}
                         shareArticle={shareArticle}
                         roundedClass="rounded-2xl"
                     >
@@ -9158,6 +9229,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     onOpen={onOpen}
                     onToggleRead={onToggleRead}
                     onToggleStar={onToggleStar}
+                    onSpeak={onSpeak}
                     shareArticle={shareArticle}
                     roundedClass={gridMode ? 'rounded-2xl' : 'rounded-none sm:rounded-2xl'}
                 >
