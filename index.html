@@ -5002,8 +5002,27 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                         }));
                     }
                 };
+                audio.onplay = () => {
+                    if (ttsActiveJobRef.current === cacheJobId) {
+                        if ('mediaSession' in navigator) {
+                            try { navigator.mediaSession.playbackState = 'playing'; } catch {}
+                        }
+                        setTtsState(prev => (prev.isPlaying ? prev : { ...prev, isPlaying: true }));
+                    }
+                };
+                audio.onpause = () => {
+                    if (ttsActiveJobRef.current === cacheJobId && !audio.ended) {
+                        if ('mediaSession' in navigator) {
+                            try { navigator.mediaSession.playbackState = 'paused'; } catch {}
+                        }
+                        setTtsState(prev => (!prev.isPlaying ? prev : { ...prev, isPlaying: false }));
+                    }
+                };
                 audio.onended = () => {
                     if (ttsActiveJobRef.current === cacheJobId) {
+                        if ('mediaSession' in navigator) {
+                            try { navigator.mediaSession.playbackState = 'none'; } catch {}
+                        }
                         setTtsState(prev => ({ ...prev, isPlaying: false, status: 'Ferdig opplest' }));
                     }
                 };
@@ -6621,6 +6640,7 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     )}
 
                     {/* Akkar NB-TTS Opplesingsspiller */}
+                    <audio ref={ttsAudioRef} playsInline preload="auto" className="hidden" />
                     {ttsState.visible && (
                         <div className="fixed bottom-4 left-3 right-20 lg:left-[21rem] lg:right-24 z-40 max-w-2xl mx-auto rounded-2xl bg-white/95 dark:bg-darksidebar/95 backdrop-blur-md border border-brand-200 dark:border-darkborder shadow-2xl p-3 text-brand-900 dark:text-white">
                             {ttsState.expanded && (
