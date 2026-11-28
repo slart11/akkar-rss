@@ -1,13 +1,13 @@
 {
-  "name": "Akkar – Nyheter & Opplesing",
+  "name": "Akkar",
   "short_name": "Akkar",
   "description": "RSS-leser med norsk tekst-til-tale (NB-TTS VoxCPM2)",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#09142e",
-  "theme_color": "#0b1736",
+  "background_color": "#060d20",
+  "theme_color": "#060d20",
   "lang": "no",
   "icons": [
     {
