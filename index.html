@@ -2863,13 +2863,33 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                 setPendingArticles(remaining);
             };
 
+            // Når brukeren bytter feed/mappe, flettes eventuelle ventende artikler
+            // inn automatisk – gul melding skal kun vises for nye artikler som
+            // ankommer mens man allerede er inne i strømmen.
+            useEffect(() => {
+                if (!pendingArticlesRef.current.length) return;
+                const toMerge = [...pendingArticlesRef.current];
+                pendingArticlesRef.current = [];
+                setPendingArticles([]);
+                setArticles(prev => mergeAndPruneArticles(prev, toMerge));
+            }, [activeFilter.type, activeFilter.id]);
+
             const refreshAllFeeds = async (silent = false, initial = false) => {
                 if (refreshInFlight.current) return;
                 refreshInFlight.current = true;
 
                 // Ved første oppstart skal oppdateringen skje helt i bakgrunnen:
                 // ingen spinner, ingen toast og ingen "nye artikler"-melding.
-                if (!silent && !initial) setIsRefreshing(true);
+                if (!silent && !initial) {
+                    setIsRefreshing(true);
+                    // Hvis det allerede ligger klare ventende artikler, vis dem øyeblikkelig.
+                    if (pendingArticlesRef.current.length > 0) {
+                        const readyPending = [...pendingArticlesRef.current];
+                        pendingArticlesRef.current = [];
+                        setPendingArticles([]);
+                        setArticles(prev => mergeAndPruneArticles(prev, readyPending));
+                    }
+                }
                 
                 const allFeeds = [];
                 foldersRef.current.forEach(folder => {
@@ -2913,8 +2933,10 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                 let addedCount = 0;
 
                 if (silent && !initial) {
-                    // Vanlig bakgrunnsoppdatering: hold nye artikler utenfor hovedlisten
-                    // til brukeren aktivt trykker på meldingen øverst.
+                    // Bakgrunnsoppdatering:
+                    // - Nye artikler i andre strømmer flettes rett inn automatisk.
+                    // - Nye artikler i strømmen brukeren står i akkurat nå legges i
+                    //   pendingArticles slik at kun den aktive strømmen får gul melding.
                     const knownUrls = new Set([
                         ...articlesRef.current.map(article => article.url),
                         ...pendingArticlesRef.current.map(article => article.url)
@@ -2925,27 +2947,54 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                     );
 
                     if (newArticles.length > 0) {
-                        const nextPending = [
-                            ...pendingArticlesRef.current,
-                            ...newArticles
-                        ];
+                        const cur = activeFilterRef.current;
+                        let activeFeedIds = null;
+                        if (cur?.id) {
+                            if (cur.type === 'folder') {
+                                const fld = foldersRef.current.find(f => f.id === cur.id);
+                                activeFeedIds = new Set((fld?.feeds || []).map(f => f.id));
+                            } else if (cur.type === 'feed') {
+                                activeFeedIds = new Set([cur.id]);
+                            }
+                        }
 
-                        const uniquePending = [];
-                        const seen = new Set();
-
-                        nextPending.forEach(article => {
-                            if (!article.url || seen.has(article.url)) return;
-                            seen.add(article.url);
-                            uniquePending.push(article);
+                        const forActiveStream = [];
+                        const forOtherStreams = [];
+                        newArticles.forEach(article => {
+                            if (activeFeedIds && activeFeedIds.has(article.feedId)) {
+                                forActiveStream.push(article);
+                            } else {
+                                forOtherStreams.push(article);
+                            }
                         });
 
-                        uniquePending.sort((a, b) =>
-                            (new Date(b.pubDate).getTime() || 0) -
-                            (new Date(a.pubDate).getTime() || 0)
-                        );
+                        if (forOtherStreams.length > 0) {
+                            setArticles(prev => mergeAndPruneArticles(prev, forOtherStreams));
+                        }
 
-                        pendingArticlesRef.current = uniquePending;
-                        setPendingArticles(uniquePending);
+                        if (forActiveStream.length > 0) {
+                            const nextPending = [
+                                ...pendingArticlesRef.current,
+                                ...forActiveStream
+                            ];
+
+                            const uniquePending = [];
+                            const seen = new Set();
+
+                            nextPending.forEach(article => {
+                                if (!article.url || seen.has(article.url)) return;
+                                seen.add(article.url);
+                                uniquePending.push(article);
+                            });
+
+                            uniquePending.sort((a, b) =>
+                                (new Date(b.pubDate).getTime() || 0) -
+                                (new Date(a.pubDate).getTime() || 0)
+                            );
+
+                            pendingArticlesRef.current = uniquePending;
+                            setPendingArticles(uniquePending);
+                        }
                     }
                 } else {
                     const pendingSnapshot = [...pendingArticlesRef.current];
