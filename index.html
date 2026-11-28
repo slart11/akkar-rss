@@ -3135,7 +3135,7 @@ const [focusedArticleIndex, setFocusedArticleIndex] = useState(-1);
                     if (showFloatingTopBar) setShowFloatingTopBar(false);
                 } else if (delta > 6) {
                     upScrollAccumRef.current = 0;
-                    if (showFloatingTopBar && !isSizeMenuOpen && !isSearchOpen) {
+                    if (showFloatingTopBar && !isSizeMenuOpen) {
                         setShowFloatingTopBar(false);
                     }
                 } else if (delta < 0) {
