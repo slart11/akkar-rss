@@ -5199,6 +5199,11 @@ h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted)}
                     ttsAudioRef.current = new Audio();
                 }
 
+                // Marker saken som lest (og grået ut frem til oppdatering/bytte) når opplesing starter.
+                if (!art.read) {
+                    setGroupedReadState(art, true);
+                }
+
                 await stopTts(false);
 
                 const cfg = ttsSettingsRef.current;
