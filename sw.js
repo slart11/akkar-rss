@@ -1,5 +1,5 @@
-const CACHE_NAME = 'akkar-pwa-v3';
-const PRECACHE_ASSETS = ['./icon-512.png', './icon-192.png', './manifest.webmanifest'];
+const CACHE_NAME = 'akkar-pwa-v4';
+const PRECACHE_ASSETS = ['./icon-512-any.png', './icon-192-any.png', './icon-512.png', './icon-192.png', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
